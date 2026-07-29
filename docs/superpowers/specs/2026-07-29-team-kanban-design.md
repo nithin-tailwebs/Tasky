@@ -1,6 +1,6 @@
 # Tasky — Internal Team Kanban · Design
 
-**Status:** DRAFT v0.1 — open questions in §9, not yet approved
+**Status:** v1.0 — feature set agreed, ready for implementation planning
 **Date:** 2026-07-29
 **Owner:** Siddharth (siddharthkajaria@tailwebs.com)
 
@@ -16,16 +16,17 @@ Self-hosted on our own EC2 box, used inside the org only.
 A small team. Everyone signs in. Accounts are **created by an admin** — there is no public signup,
 no invite emails, no password-reset flow in v1.
 
-## 3 · Decisions already locked
+## 3 · Decisions locked
 
 | Decision | Choice | Why |
 |---|---|---|
 | Product shape | Kanban board, drag cards between columns | The most Jira-feeling feature; visual and immediately useful |
 | Boards | **Multiple** — one per project | Retrofitting multi-board later means touching every query and screen |
-| Columns | **Fixed three**: To Do / In Progress / Done | Custom columns were explicitly not wanted; skipping them removes the fiddliest logic in a kanban build |
+| Columns | **Fixed three**: To Do / In Progress / Done | Custom columns explicitly not wanted; skipping them removes the fiddliest logic in a kanban build |
 | Users | Small team, shared cards, per-user login | It's a team tool, not a personal one |
 | Signup | **Admin creates accounts** | No self-signup surface to defend |
-| User management UI | **Django admin** (free, zero code) | Entire "admin creates accounts" requirement costs nothing |
+| User management UI | **Django admin** (free, zero code) | The entire "admin creates accounts" requirement costs nothing |
+| Board visibility | **Everyone sees every board** | Right for a small internal team. Restricting later is one table plus one filter, not a rewrite |
 | Serving | **Same origin** — Django serves the built React files | Deletes CORS and cross-site cookie problems entirely |
 | Priority of effort | Working tool over deep learning | Optimise for shipping; learn by tweaking afterwards |
 
@@ -54,8 +55,9 @@ Same code in both. The database connection string comes from an environment vari
 
 ## 5 · Feature set
 
-### 5.1 · v1 — agreed core
+### 5.1 · v1 — agreed, all of it
 
+**Core**
 - Login / logout
 - Multiple boards, each with a name and description
 - Cards with **title**, **description**, **assignee**
@@ -63,18 +65,16 @@ Same code in both. The database connection string comes from an environment vari
 - Create / edit / delete boards and cards
 - Add and manage teammates via `/admin/`
 
-### 5.2 · v1 — proposed additions ⚠️ OPEN, needs a decision
+**Agreed additions**
 
-Four things I'd argue belong in v1. **None are agreed yet** — see §9.
+| Feature | What it does |
+|---|---|
+| **Due dates** | A date per card. Overdue cards are visibly flagged |
+| **Priority** | High / Medium / Low, shown as a coloured dot on the card |
+| **Comments** | A thread under each card, so the reasoning lives with the work |
+| **"My tasks"** | One screen listing everything assigned to you, across every board |
 
-| Feature | What it is | Argument for v1 |
-|---|---|---|
-| **Due dates** | A date per card; overdue ones visibly flagged | One field. Without dates a board goes stale in about two weeks |
-| **Priority** | High / Medium / Low as a coloured dot | Highest value per line of code on the whole list |
-| **Comments** | A thread under each card | What makes it a *team* tool instead of a shared list — where "why did we do this" lives |
-| **"My tasks" view** | Everything assigned to you, across all boards | Once there are 4+ boards this becomes the screen people actually open |
-
-### 5.3 · Deliberately NOT in v1
+### 5.2 · Deliberately NOT in v1
 
 Not "forgotten" — each is a considered deferral, with the trigger for revisiting it.
 
@@ -87,6 +87,7 @@ Not "forgotten" — each is a considered deferral, with the trigger for revisiti
 | Activity history | Nobody misses it early | An audit trail is needed |
 | Subtasks / checklists | Real UI complexity; a card needing subtasks is usually two cards | Cards genuinely can't be split |
 | Per-board permissions | Small team, everyone sees everything | Someone needs a board others can't see |
+| Password reset | Admin can set a password in `/admin/` | Team grows past the point where that's tolerable |
 
 ## 6 · Data model
 
@@ -97,18 +98,19 @@ Four tables.
 > and prevents the most common Django regret.
 
 **Board** — `name` · `description` · `created_by` → User · `created_at` · `updated_at`
-> v1: every signed-in person sees every board. No membership table.
 
 **Card**
 - `board` → Board
 - `title` · `description`
 - `status` → `todo` | `in_progress` | `done`
+- `priority` → `low` | `medium` | `high` *(default `medium`)*
+- `due_date` → date *(nullable — most cards won't have one)*
 - `assignee` → User *(nullable — unassigned is a normal state)*
 - `position` → integer, order within its column
 - `created_by` → User · `created_at` · `updated_at`
-- *(pending §5.2: `due_date`, `priority`)*
 
-**Comment** *(only if §5.2 comments are approved)* — `card` → Card · `author` → User · `body` · `created_at`
+**Comment** — `card` → Card · `author` → User · `body` · `created_at`
+> Edit and delete are author-only. No threading, no reactions — a flat list.
 
 **Columns are not a table.** Three fixed statuses on the card instead. A table here would be pure overhead
 given custom columns were ruled out.
@@ -123,11 +125,18 @@ Session cookies, same origin, no tokens.
 
 ```
 POST   /api/auth/login/          POST /api/auth/logout/       GET /api/auth/me/
+
 GET    /api/boards/              POST /api/boards/
 GET    /api/boards/{id}/         PATCH /api/boards/{id}/      DELETE /api/boards/{id}/
 GET    /api/boards/{id}/cards/
+
 POST   /api/cards/               PATCH /api/cards/{id}/       DELETE /api/cards/{id}/
 POST   /api/cards/{id}/move/     ← drag & drop
+
+GET    /api/cards/{id}/comments/ POST /api/cards/{id}/comments/
+DELETE /api/comments/{id}/       ← author only
+
+GET    /api/me/tasks/            ← my cards across all boards
 GET    /api/users/               ← names for the assignee dropdown
 ```
 
@@ -140,25 +149,26 @@ and keeping it apart stops update logic tangling with ordering logic.
 |---|---|---|
 | 1 | Login | Username + password |
 | 2 | Boards | The list, plus "new board" |
-| 3 | Board | The kanban — three columns, drag cards, add a card |
-| 4 | Card | Modal to edit title, description, assignee — and delete |
+| 3 | Board | The kanban — three columns, drag cards, add a card. Priority dot and due date visible on each card |
+| 4 | Card | Modal: title, description, assignee, priority, due date, comment thread — and delete |
+| 5 | My tasks | Everything assigned to me across all boards, soonest due first |
 
 Adding people is **not** a screen. That's `/admin/`, free from Django.
 
-## 9 · Open questions
+## 9 · Remaining open questions
 
-1. **Which of the four §5.2 features are in v1?** My recommendation: all four. They're small individually and
-   they're the difference between a demo and something the team will keep using.
-2. **Anything in §5.3 that needs pulling forward?** My recommendation: nothing.
-3. **Project name** — `tasky` is a placeholder. Renaming is one `mv`.
-4. **Roughly how many people** will use it? Changes nothing architecturally; useful sanity check on the
-   "everyone sees everything" call in §6.
+Nothing blocking. Two loose ends:
+
+1. **Project name** — `tasky` is a placeholder. Renaming is one `mv`.
+2. **Team size** — changes nothing architecturally; a sanity check on the "everyone sees everything" call.
 
 ## 10 · Success criteria
 
 v1 is done when, on the EC2 box:
 
 - A teammate can be created in `/admin/` and sign in
-- They can create a board, add a card, assign it, and drag it to Done
-- Their change is visible to another teammate on refresh
+- They can create a board, add a card, assign it, give it a priority and a due date, and drag it to Done
+- They can comment on a card, and a teammate sees that comment
+- "My tasks" shows them their own cards from every board
+- Their changes are visible to another teammate on refresh
 - Closing the browser and returning loses nothing
