@@ -18,7 +18,7 @@ is the `csrftoken` cookie. Call `GET /api/auth/csrf/` once on app load to be han
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/boards/` | every board; unpaginated |
-| POST | `/api/boards/` | `{name, description}`; creator is taken from the session |
+| POST | `/api/boards/` | `{name, description?}`; `description` is optional; creator is taken from the session |
 | GET/PATCH/DELETE | `/api/boards/{id}/` | |
 | GET | `/api/boards/{id}/cards/` | every card on the board, ordered by column position |
 
@@ -26,11 +26,15 @@ is the `csrftoken` cookie. Call `GET /api/auth/csrf/` once on app load to be han
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/cards/` | `{board, title, description?, status?, priority?, due_date?, assignee?}` |
-| GET/PATCH/DELETE | `/api/cards/{id}/` | `position` is read-only here |
-| POST | `/api/cards/{id}/move/` | `{status, position}` — the drag-and-drop endpoint |
+| GET/PATCH/DELETE | `/api/cards/{id}/` | `position` is read-only here; `status` cannot be changed here either — see below |
+| POST | `/api/cards/{id}/move/` | `{status, position}` — the drag-and-drop endpoint; returns the updated card, or 404 if the card was deleted before the move could be applied |
 
 `status` is one of `todo`, `in_progress`, `done`.
 `priority` is `1` low, `2` medium, `3` high; responses also carry `priority_label`.
+
+**`status` cannot be changed via `PATCH`/`PUT` on `/api/cards/{id}/`.** A request whose `status` differs from the card's current value is rejected with 400: `{"status": "Status cannot be changed here — POST to /api/cards/{id}/move/ instead."}`. Moving a card between columns is *only* done via `POST /api/cards/{id}/move/`, which is the one endpoint that renumbers both the source and destination columns correctly. A `PATCH` that echoes back the card's current, unchanged `status` alongside other real edits (e.g. `title`) is accepted — a UI PATCHing back the full set of fields it holds does not need to strip `status` out, it just must not try to change it that way.
+
+Card responses also carry read-only extras beyond the writable fields above: `assignee_detail` (a nested `{id, username, display_name}` object for the current `assignee`, returned alongside the raw `assignee` id), `created_by` (a nested user object), and `priority_label` (the human-readable form of `priority`). None of these three are accepted on write.
 
 ## Comments
 | Method | Path | Notes |

@@ -1,7 +1,18 @@
+"""Seed demo boards, people and cards for developing the UI against.
+
+⚠️  WARNING — LOCAL/DEV USE ONLY. NEVER RUN AGAINST A PRODUCTION DATABASE. ⚠️
+This command creates demo accounts (`asha`, `kabir`, `lena`) that all share a
+single, well-known, committed-to-the-repo password (`DEMO_PASSWORD` below).
+Running this against any shared, staging or production database would create
+real, working accounts with a publicly known password. It is safe only
+because every environment it is meant for is a throwaway local/dev database.
+"""
+
 import datetime
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
+from django.db import connection
 
 from boards.models import Board, Card
 
@@ -32,9 +43,24 @@ BOARDS = {
 
 
 class Command(BaseCommand):
-    help = "Create demo boards, people and cards for developing the UI against."
+    help = (
+        "Create demo boards, people and cards for developing the UI against. "
+        "Creates demo accounts with a well-known, committed password "
+        f"({DEMO_PASSWORD!r}) — LOCAL/DEV USE ONLY, NEVER run this against a "
+        "production database."
+    )
 
     def handle(self, *args, **options):
+        db = connection.settings_dict
+        self.stdout.write(
+            self.style.WARNING(
+                "seed_demo: about to write demo data (including accounts with "
+                f"a well-known password) to database {db.get('NAME')!r} on "
+                f"host {db.get('HOST') or 'localhost'!r}. "
+                "This command must NEVER be run against a production database."
+            )
+        )
+
         User = get_user_model()
         today = datetime.date.today()
 

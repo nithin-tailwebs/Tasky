@@ -1,6 +1,9 @@
+import io
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.db import connection
 
 from boards.models import Board, Card
 
@@ -42,3 +45,14 @@ def test_seeded_positions_are_contiguous_within_each_column():
                 .values_list("position", flat=True)
             )
             assert positions == list(range(len(positions)))
+
+
+@pytest.mark.django_db
+def test_seed_warns_which_database_it_is_about_to_write_to():
+    out = io.StringIO()
+    call_command("seed_demo", stdout=out)
+
+    output = out.getvalue()
+    assert connection.settings_dict["NAME"] in output
+    assert "NEVER" in output
+    assert "production" in output.lower()
