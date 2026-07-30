@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Card
+from .models import Board, Card, Comment
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -32,3 +32,17 @@ class CardSerializer(serializers.ModelSerializer):
 class MoveCardSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Card.Status.choices)
     position = serializers.IntegerField(min_value=0)
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ["id", "card", "author", "body", "created_at"]
+        read_only_fields = ["card"]
+
+    def validate_body(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("A comment cannot be empty.")
+        return value

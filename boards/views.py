@@ -1,11 +1,16 @@
 from django.http import Http404
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .models import Board, Card
-from .serializers import BoardSerializer, CardSerializer, MoveCardSerializer
+from .models import Board, Card, Comment
+from .serializers import (
+    BoardSerializer,
+    CardSerializer,
+    CommentSerializer,
+    MoveCardSerializer,
+)
 from .services import move_card, next_position
 
 
@@ -84,3 +89,28 @@ class CardViewSet(viewsets.ModelViewSet):
             raise Http404("Card was deleted before the move could be applied.")
         card.refresh_from_db()
         return Response(CardSerializer(card).data)
+
+    @action(detail=True, methods=["get", "post"])
+    def comments(self, request, pk=None):
+        card = self.get_object()
+
+        if request.method == "POST":
+            serializer = CommentSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(card=card, author=request.user)
+            return Response(serializer.data, status=201)
+
+        thread = card.comments.select_related("author")
+        return Response(CommentSerializer(thread, many=True).data)
+
+
+class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
+    """Deletion only — comments are created through the card's own endpoint."""
+
+    queryset = Comment.objects.select_related("author")
+    serializer_class = CommentSerializer
+
+    def perform_destroy(self, instance):
+        if instance.author != self.request.user:
+            raise PermissionDenied("You can only delete your own comments.")
+        instance.delete()

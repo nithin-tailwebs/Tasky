@@ -17,3 +17,12 @@ class CardAdmin(admin.ModelAdmin):
     list_display = ["title", "board", "status", "priority", "assignee", "due_date"]
     list_filter = ["status", "priority", "board"]
     search_fields = ["title", "description"]
+
+
+from .models import Comment
+
+
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display = ["card", "author", "created_at"]
+    search_fields = ["body"]
