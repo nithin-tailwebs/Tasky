@@ -1,7 +1,8 @@
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -52,3 +53,11 @@ class LogoutView(APIView):
 class MeView(APIView):
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class UserListView(ListAPIView):
+    """Names for the assignee dropdown. Never more than id, username and display name."""
+
+    serializer_class = UserSerializer
+    pagination_class = None
+    queryset = get_user_model().objects.filter(is_active=True).order_by("username")
