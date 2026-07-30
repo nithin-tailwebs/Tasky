@@ -41,19 +41,25 @@ class CardViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just
-        # calls this with partial=True. A status change here would move the
-        # card between columns with NO renumbering — the source keeps a gap,
-        # the destination gets a duplicate position — so it's rejected in
-        # favour of the one route that renumbers correctly.
+        # calls this with partial=True. An actual status CHANGE here would
+        # move the card between columns with NO renumbering — the source
+        # keeps a gap, the destination gets a duplicate position — so that's
+        # rejected in favour of the one route that renumbers correctly.
+        # Only a real change is rejected: a UI that PATCHes back the full set
+        # of fields it's holding (status included, unchanged, alongside a
+        # genuine edit like title) must not have that legitimate edit 400'd
+        # just because the status key was present in the body.
         if "status" in request.data:
-            raise ValidationError(
-                {
-                    "status": (
-                        "Status cannot be changed here — "
-                        "POST to /api/cards/{id}/move/ instead."
-                    )
-                }
-            )
+            card = self.get_object()
+            if request.data["status"] != card.status:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "Status cannot be changed here — "
+                            "POST to /api/cards/{id}/move/ instead."
+                        )
+                    }
+                )
         return super().update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])

@@ -142,6 +142,26 @@ def test_patching_status_is_rejected(auth_client, board):
 
 
 @pytest.mark.django_db
+def test_patching_with_status_unchanged_still_updates_other_fields(auth_client, board):
+    """A UI that PATCHes back the full set of fields it's holding — status
+    included, but unchanged — must not have a genuine edit (title, here)
+    rejected just because "status" was present in the body. Only an actual
+    status CHANGE is rejected; round 2 fix for the round-1 regression."""
+    card = Card.objects.create(board=board, title="Before", status="todo")
+
+    response = auth_client.patch(
+        f"/api/cards/{card.id}/",
+        {"status": "todo", "title": "After"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    card.refresh_from_db()
+    assert card.title == "After"
+    assert card.status == "todo"
+
+
+@pytest.mark.django_db
 def test_patching_title_still_works(auth_client, board):
     card = Card.objects.create(board=board, title="Before", status="todo")
 
