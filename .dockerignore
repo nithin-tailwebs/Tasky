@@ -1,0 +1,22 @@
+# Secrets — never bake these into an image layer.
+.env
+.env.*
+!.env.example
+
+# Git history — large, and can contain anything ever committed.
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+.venv
+venv
+.pytest_cache
+
+# Project tooling / planning artifacts — not needed at runtime.
+.superpowers
+docs
+
+# Only relevant if/when a React build lands in this repo.
+node_modules

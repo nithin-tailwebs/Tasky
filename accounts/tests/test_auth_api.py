@@ -12,6 +12,14 @@ def test_login_succeeds_with_correct_password(client, user):
     assert response.json()["username"] == "alice"
     assert response.json()["display_name"] == "Alice"
 
+    # The only untested link between LoginView and a future React client:
+    # prove the session cookie LoginView set actually authenticates a
+    # following request on the same client, not just that the response
+    # body looked right.
+    me_response = client.get("/api/auth/me/")
+    assert me_response.status_code == 200
+    assert me_response.json()["username"] == "alice"
+
 
 @pytest.mark.django_db
 def test_login_fails_with_wrong_password(client, user):

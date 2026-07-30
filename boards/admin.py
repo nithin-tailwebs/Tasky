@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Board
+from .models import Board, Card, Comment
 
 
 @admin.register(Board)
@@ -9,17 +9,12 @@ class BoardAdmin(admin.ModelAdmin):
     search_fields = ["name"]
 
 
-from .models import Card
-
-
 @admin.register(Card)
 class CardAdmin(admin.ModelAdmin):
     list_display = ["title", "board", "status", "priority", "assignee", "due_date"]
     list_filter = ["status", "priority", "board"]
     search_fields = ["title", "description"]
-
-
-from .models import Comment
+    readonly_fields = ["position"]
 
 
 @admin.register(Comment)

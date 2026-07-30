@@ -98,6 +98,30 @@ def test_unassigning_a_card(auth_client, board, other_user):
 
 
 @pytest.mark.django_db
+def test_listing_all_cards_is_unscoped_by_board(auth_client, board, user):
+    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+    Card.objects.create(board=board, title="Mine", position=0)
+    Card.objects.create(board=other_board, title="Also visible", position=0)
+
+    response = auth_client.get("/api/cards/")
+
+    assert response.status_code == 200
+    assert {card["title"] for card in response.json()} == {"Mine", "Also visible"}
+
+
+@pytest.mark.django_db
+def test_retrieving_a_single_card(auth_client, board):
+    card = Card.objects.create(board=board, title="One card", position=0)
+
+    response = auth_client.get(f"/api/cards/{card.id}/")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == card.id
+    assert body["title"] == "One card"
+
+
+@pytest.mark.django_db
 def test_deleting_a_card(auth_client, board):
     card = Card.objects.create(board=board, title="Doomed")
     assert auth_client.delete(f"/api/cards/{card.id}/").status_code == 204
@@ -175,6 +199,42 @@ def test_patching_title_still_works(auth_client, board):
     card.refresh_from_db()
     assert card.title == "After"
     assert card.status == "todo"
+
+
+@pytest.mark.django_db
+def test_patching_board_is_rejected(auth_client, board, user):
+    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+    card = Card.objects.create(board=board, title="Untouched", status="todo")
+
+    response = auth_client.patch(
+        f"/api/cards/{card.id}/",
+        {"board": other_board.id},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "board" in response.json()
+    card.refresh_from_db()
+    assert card.board_id == board.id
+
+
+@pytest.mark.django_db
+def test_patching_with_board_unchanged_still_updates_other_fields(auth_client, board):
+    """Same protection as status: a PATCH that echoes back the card's
+    current, unchanged board alongside a genuine edit (title, here) must
+    not be rejected just because "board" was present in the body."""
+    card = Card.objects.create(board=board, title="Before", status="todo")
+
+    response = auth_client.patch(
+        f"/api/cards/{card.id}/",
+        {"board": board.id, "title": "After"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    card.refresh_from_db()
+    assert card.title == "After"
+    assert card.board_id == board.id
 
 
 @pytest.mark.django_db

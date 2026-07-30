@@ -69,6 +69,21 @@ def test_nobody_can_delete_someone_elses_comment(auth_client, card, other_user):
 
 
 @pytest.mark.django_db
+def test_an_authorless_comment_can_be_deleted_by_anyone_signed_in(auth_client, card, other_user):
+    """author is SET_NULL when the author's account is deleted. Ownership
+    must only be enforced when there IS an owner, or the comment becomes
+    permanently undeletable — everyone fails `author != request.user` when
+    author is None."""
+    comment = Comment.objects.create(card=card, author=other_user, body="Orphaned")
+    other_user.delete()
+    comment.refresh_from_db()
+    assert comment.author_id is None
+
+    assert auth_client.delete(f"/api/comments/{comment.id}/").status_code == 204
+    assert not Comment.objects.filter(id=comment.id).exists()
+
+
+@pytest.mark.django_db
 def test_an_empty_comment_is_rejected(auth_client, card):
     response = auth_client.post(
         f"/api/cards/{card.id}/comments/",

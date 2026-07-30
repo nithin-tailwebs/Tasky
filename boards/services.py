@@ -6,7 +6,30 @@ from .models import Card
 
 
 def next_position(board_id: int, status: str) -> int:
-    """The position a new card takes: the end of its column."""
+    """The position a new card takes: the end of its column.
+
+    This read is deliberately UNLOCKED. Two concurrent creates into the
+    same column can both read the same Max(position) and both save with
+    that same position — that duplicate is a real possible outcome, not a
+    theoretical one. It is benign, and only benign, for two independent
+    reasons that both have to keep holding:
+
+    1. Card.Meta.ordering = ["position", "id"] is a TOTAL order (position
+       ties are broken by id), so a duplicate position never makes display
+       order ambiguous or nondeterministic — it just makes the tie-break
+       do the work "position" alone couldn't.
+    2. move_card() renumbers the ENTIRE destination column to a clean
+       0..n-1 on every move, not just the two rows it touches — so the
+       very first drag in that column, by anyone, heals the duplicate.
+
+    Anyone narrowing move_card() to shift only the immediate neighbours
+    instead of renumbering the whole column, or dropping the `id`
+    tiebreak from Card.Meta.ordering, turns this from a harmless,
+    self-healing quirk into a visible board-shuffle bug — two cards
+    fighting for the same slot with no defined order between them. Don't
+    "fix" this by locking next_position(); the cost (a lock on every
+    create) buys nothing that isn't already covered above.
+    """
     highest = Card.objects.filter(board_id=board_id, status=status).aggregate(
         highest=Max("position")
     )["highest"]
@@ -17,7 +40,22 @@ def next_position(board_id: int, status: str) -> int:
 def move_card(card: Card, new_status: str, new_position: int) -> Card:
     """Drop a card into a column at a position, then renumber the affected columns.
 
-    Every card on the board is locked with SELECT ... FOR UPDATE. That is heavier
+    The honest guarantee this module gives is NOT "positions are always a
+    contiguous 0..n-1 for a column" — that is not a standing system
+    invariant, and nothing enforces it outside of a move. Deleting the
+    card at position 0 out of [0, 1, 2] leaves [1, 2] with no
+    concurrency, no bug, and no renumbering involved — gaps like that are
+    EXPECTED and HARMLESS, not a defect to fix (this module deliberately
+    does not renumber on delete; see next_position() above for why a
+    non-zero-based column is still safe to append to).
+
+    What IS guaranteed: `position` (tie-broken by `id`, see
+    Card.Meta.ordering) gives every column a deterministic total order,
+    and THIS function renormalises the columns it touches to a clean
+    0..n-1 at the moment it runs — that renumbering is a one-time side
+    effect of a move, not an invariant that holds continuously afterward
+    (the next delete reopens a gap, same as always). Every card on the
+    board is locked with SELECT ... FOR UPDATE. That is heavier
     than locking two columns, but a board holds tens of rows, and it buys real
     safety: two concurrent moves on the SAME board issue the identical
     `WHERE board_id = ?` predicate against the same index, so both transactions

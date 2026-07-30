@@ -54,15 +54,29 @@ class CardViewSet(viewsets.ModelViewSet):
         # of fields it's holding (status included, unchanged, alongside a
         # genuine edit like title) must not have that legitimate edit 400'd
         # just because the status key was present in the body.
-        if "status" in request.data:
+        # Same defect, same fix, for board: relocating a card to a different
+        # board with a plain PATCH would leave a gap in the source column's
+        # positions and a duplicate position in the destination column — no
+        # renumbering happens either side. Cards do not move between boards
+        # in this product at all, so unlike status there is no endpoint to
+        # redirect to; a real change is just rejected outright. As with
+        # status, a PATCH that echoes back the card's current, unchanged
+        # board alongside a genuine edit (e.g. title) must not be 400'd.
+        if "status" in request.data or "board" in request.data:
             card = self.get_object()
-            if request.data["status"] != card.status:
+            if "status" in request.data and request.data["status"] != card.status:
                 raise ValidationError(
                     {
                         "status": (
                             "Status cannot be changed here — "
                             "POST to /api/cards/{id}/move/ instead."
                         )
+                    }
+                )
+            if "board" in request.data and str(request.data["board"]) != str(card.board_id):
+                raise ValidationError(
+                    {
+                        "board": "Cards cannot be moved between boards."
                     }
                 )
         return super().update(request, *args, **kwargs)
@@ -111,6 +125,11 @@ class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
     serializer_class = CommentSerializer
 
     def perform_destroy(self, instance):
-        if instance.author != self.request.user:
+        # An authorless comment (its author's account was deleted, which
+        # SET_NULLs this FK) must not become permanently undeletable.
+        # `instance.author != self.request.user` is True for EVERY signed-in
+        # user when author is None, which would brick deletion for good —
+        # so ownership is only enforced when there is an owner to enforce.
+        if instance.author_id is not None and instance.author != self.request.user:
             raise PermissionDenied("You can only delete your own comments.")
         instance.delete()

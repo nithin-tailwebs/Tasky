@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,10 +23,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-insecure-key")
+_DJANGO_SECRET_KEY_FROM_ENV = os.environ.get("DJANGO_SECRET_KEY")
+SECRET_KEY = _DJANGO_SECRET_KEY_FROM_ENV or "dev-only-insecure-key"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
+
+# A missed DJANGO_SECRET_KEY env var in production would silently sign
+# sessions and CSRF tokens with the fallback key above, which is committed
+# to the repo and therefore public. Guard against that specifically —
+# check whether the env var was ABSENT, not whether the resulting value
+# happens to equal the fallback string, so a deliberately-set env var that
+# happens to match it is not treated as a code-level misconfiguration.
+#
+# This must not fire in the test environment: pytest-django/Django's test
+# runner forces `settings.DEBUG = False` by mutating the settings object
+# AFTER this module has already finished importing, so this check — which
+# runs once, at import time, against whatever DEBUG/env this process was
+# actually started with — never re-evaluates against that later override.
+# In this repo's docker test environment DJANGO_DEBUG=1 is set via `.env`
+# regardless, so DEBUG is already True here and the guard is a no-op.
+if not DEBUG and _DJANGO_SECRET_KEY_FROM_ENV is None:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is not set and DEBUG is False. Refusing to start "
+        "with the committed 'dev-only-insecure-key' fallback in anything "
+        "that isn't local development — that key is public in the repo and "
+        "would silently sign production sessions and CSRF tokens."
+    )
 
 ALLOWED_HOSTS = [
     host.strip()
