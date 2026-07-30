@@ -123,3 +123,50 @@ def test_title_is_required(auth_client, board):
     )
     assert response.status_code == 400
     assert "title" in response.json()
+
+
+@pytest.mark.django_db
+def test_patching_status_is_rejected(auth_client, board):
+    card = Card.objects.create(board=board, title="Untouched", status="todo")
+
+    response = auth_client.patch(
+        f"/api/cards/{card.id}/",
+        {"status": "done"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "status" in response.json()
+    card.refresh_from_db()
+    assert card.status == "todo"
+
+
+@pytest.mark.django_db
+def test_patching_title_still_works(auth_client, board):
+    card = Card.objects.create(board=board, title="Before", status="todo")
+
+    response = auth_client.patch(
+        f"/api/cards/{card.id}/",
+        {"title": "After"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    card.refresh_from_db()
+    assert card.title == "After"
+    assert card.status == "todo"
+
+
+@pytest.mark.django_db
+def test_creating_a_card_with_an_explicit_status_still_works(auth_client, board):
+    response = auth_client.post(
+        "/api/cards/",
+        {"board": board.id, "title": "Started already", "status": "in_progress"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "in_progress"
+    assert body["position"] == 0
+    assert Card.objects.get(title="Started already").status == "in_progress"

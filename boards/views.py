@@ -1,5 +1,7 @@
+from django.http import Http404
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from .models import Board, Card
@@ -37,6 +39,23 @@ class CardViewSet(viewsets.ModelViewSet):
             position=next_position(board.id, status),
         )
 
+    def update(self, request, *args, **kwargs):
+        # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just
+        # calls this with partial=True. A status change here would move the
+        # card between columns with NO renumbering — the source keeps a gap,
+        # the destination gets a duplicate position — so it's rejected in
+        # favour of the one route that renumbers correctly.
+        if "status" in request.data:
+            raise ValidationError(
+                {
+                    "status": (
+                        "Status cannot be changed here — "
+                        "POST to /api/cards/{id}/move/ instead."
+                    )
+                }
+            )
+        return super().update(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
         card = self.get_object()
@@ -44,10 +63,18 @@ class CardViewSet(viewsets.ModelViewSet):
         serializer = MoveCardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        move_card(
-            card,
-            serializer.validated_data["status"],
-            serializer.validated_data["position"],
-        )
+        try:
+            move_card(
+                card,
+                serializer.validated_data["status"],
+                serializer.validated_data["position"],
+            )
+        except Card.DoesNotExist:
+            # The card was deleted by another request between this request's
+            # (unlocked) get_object() and move_card()'s row lock. Card.DoesNotExist
+            # is not converted to 404 by DRF's default exception handler on its
+            # own (only django.http.Http404 and PermissionDenied are) — it has to
+            # be translated explicitly, or this would surface as a 500.
+            raise Http404("Card was deleted before the move could be applied.")
         card.refresh_from_db()
         return Response(CardSerializer(card).data)
