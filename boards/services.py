@@ -79,11 +79,11 @@ def move_card(card: Card, new_status: str, new_position: int) -> Card:
     if card.pk not in locked_by_pk:
         # `card` was fetched (unlocked) by the view before this transaction
         # took the lock. If another request deleted it in between, trusting
-        # `card.status` here would use a stale, possibly-wrong old_status
-        # (breaking the 0..n-1 invariant on whichever column it actually left),
-        # and inserting `card` into the destination column would resurrect a
-        # ghost row that bulk_update never writes, leaving the destination
-        # with a hole. Surface it as "gone" instead.
+        # `card.status` here would use a stale, possibly-wrong old_status,
+        # renumbering the wrong column, and inserting `card` into the
+        # destination column would resurrect a ghost row that bulk_update
+        # never writes, leaving the destination with a hole. Surface it as
+        # "gone" instead.
         raise Card.DoesNotExist(
             f"Card {card.pk} was deleted before the move could be applied."
         )

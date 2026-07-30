@@ -39,6 +39,25 @@ def test_missing_secret_key_with_debug_false_is_refused():
     assert "DJANGO_SECRET_KEY" in result.stderr
 
 
+def test_empty_string_secret_key_with_debug_false_is_refused():
+    """os.environ.get("DJANGO_SECRET_KEY") returns "" (not None) when the
+    var is SET BUT EMPTY, e.g. a production .env containing a bare
+    `DJANGO_SECRET_KEY=`. The guard must treat that the same as absent —
+    an `is None` check would miss it and silently boot on the committed
+    fallback key."""
+    result = _import_settings(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings",
+            "DJANGO_DEBUG": "0",
+            "DJANGO_SECRET_KEY": "",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "DJANGO_SECRET_KEY" in result.stderr
+
+
 def test_importing_settings_in_the_test_environment_does_not_raise():
     """This repo's actual test environment (docker, DJANGO_DEBUG=1 from
     .env) must not trip the guard — this is what every other test in the

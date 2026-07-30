@@ -61,7 +61,7 @@ Card responses also carry read-only extras beyond the writable fields above: `as
 | Method | Path | Notes |
 |---|---|---|
 | GET/POST | `/api/cards/{id}/comments/` | POST takes `{body}`; author comes from the session |
-| DELETE | `/api/comments/{id}/` | author only, otherwise 403 |
+| DELETE | `/api/comments/{id}/` | if the comment has an author, only that author can delete it (otherwise 403); if the comment's author account has been deleted (`author` is `null`), any signed-in user can delete it |
 
 ## Me
 | Method | Path | Notes |

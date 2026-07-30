@@ -43,7 +43,7 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
 # actually started with — never re-evaluates against that later override.
 # In this repo's docker test environment DJANGO_DEBUG=1 is set via `.env`
 # regardless, so DEBUG is already True here and the guard is a no-op.
-if not DEBUG and _DJANGO_SECRET_KEY_FROM_ENV is None:
+if not DEBUG and not _DJANGO_SECRET_KEY_FROM_ENV:
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY is not set and DEBUG is False. Refusing to start "
         "with the committed 'dev-only-insecure-key' fallback in anything "
