@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import Board, Card
-from .serializers import BoardSerializer, CardSerializer
-from .services import next_position
+from .serializers import BoardSerializer, CardSerializer, MoveCardSerializer
+from .services import move_card, next_position
 
 
 class BoardViewSet(viewsets.ModelViewSet):
@@ -36,3 +36,18 @@ class CardViewSet(viewsets.ModelViewSet):
             created_by=self.request.user,
             position=next_position(board.id, status),
         )
+
+    @action(detail=True, methods=["post"])
+    def move(self, request, pk=None):
+        card = self.get_object()
+
+        serializer = MoveCardSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        move_card(
+            card,
+            serializer.validated_data["status"],
+            serializer.validated_data["position"],
+        )
+        card.refresh_from_db()
+        return Response(CardSerializer(card).data)

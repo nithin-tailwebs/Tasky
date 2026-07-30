@@ -27,3 +27,8 @@ class CardSerializer(serializers.ModelSerializer):
             "position", "created_by", "created_at", "updated_at",
         ]
         read_only_fields = ["position"]
+
+
+class MoveCardSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Card.Status.choices)
+    position = serializers.IntegerField(min_value=0)
