@@ -1638,11 +1638,19 @@ Expected: FAIL — 404, no `move` route.
 
 - [ ] **Step 3: Write the move service**
 
+> **⚠️ Corrected 2026-07-30 after review.** The first version of this block read `old_status` from
+> the *unlocked* `card` argument, before `select_for_update()` had run. Under two concurrent moves of
+> the same card, the second request renumbered the wrong source column and left a permanent gap in
+> the board's ordering; if the card was deleted concurrently it inserted a ghost row and returned
+> 500 instead of 404. The docstring's deadlock rationale was also factually wrong. Both are fixed
+> below. Do not "restore" the simpler version.
+
 Append to `boards/services.py`, and extend the imports at the top to:
 
 ```python
 from django.db import transaction
 from django.db.models import Max
+from django.utils import timezone
 ```
 
 ```python
@@ -1650,9 +1658,19 @@ from django.db.models import Max
 def move_card(card: Card, new_status: str, new_position: int) -> Card:
     """Drop a card into a column at a position, then renumber the affected columns.
 
-    Every card on the board is locked, in a stable id order. That is heavier than
-    locking two columns, but a board holds tens of rows, and a consistent lock order
-    is what stops two simultaneous drags deadlocking each other.
+    Every card on the board is locked with SELECT ... FOR UPDATE. That is heavier
+    than locking two columns, but a board holds tens of rows, and it buys real
+    safety: two concurrent moves on the SAME board issue the identical
+    `WHERE board_id = ?` predicate against the same index, so both transactions
+    scan (and therefore lock) the rows in the same order — that shared
+    predicate/index is what makes them serialise instead of deadlocking. The
+    trailing `order_by("id")` is a filesort applied to rows that are already
+    locked by then; it gives the renumbering a stable, deterministic order to
+    read in, but it plays no part in lock acquisition and is NOT what prevents
+    the deadlock. Moves on different boards lock disjoint row sets and never
+    contend at all. Do not narrow this to a two-column lock on the theory that
+    the ORDER BY protects it — it doesn't; any narrower filter would need its
+    own argument for why it stays deadlock-free.
     """
     locked = list(
         Card.objects.select_for_update()
@@ -1660,7 +1678,20 @@ def move_card(card: Card, new_status: str, new_position: int) -> Card:
         .order_by("id")
     )
 
-    old_status = card.status
+    locked_by_pk = {c.pk: c for c in locked}
+    if card.pk not in locked_by_pk:
+        # `card` was fetched (unlocked) by the view before this transaction
+        # took the lock. If another request deleted it in between, trusting
+        # `card.status` here would use a stale, possibly-wrong old_status
+        # (breaking the 0..n-1 invariant on whichever column it actually left),
+        # and inserting `card` into the destination column would resurrect a
+        # ghost row that bulk_update never writes, leaving the destination
+        # with a hole. Surface it as "gone" instead.
+        raise Card.DoesNotExist(
+            f"Card {card.pk} was deleted before the move could be applied."
+        )
+
+    old_status = locked_by_pk[card.pk].status
     card.status = new_status
 
     def renumber(status: str) -> list[Card]:
@@ -1671,17 +1702,23 @@ def move_card(card: Card, new_status: str, new_position: int) -> Card:
             index = max(0, min(new_position, len(column)))
             column.insert(index, card)
 
+        now = timezone.now()
         for index, member in enumerate(column):
             member.position = index
+            member.updated_at = now
         return column
 
     touched = renumber(new_status)
     if old_status != new_status:
         touched += renumber(old_status)
 
-    Card.objects.bulk_update(touched, ["position", "status"])
+    Card.objects.bulk_update(touched, ["position", "status", "updated_at"])
     return card
 ```
+
+> **On `updated_at`:** `bulk_update` does not fire `auto_now`, so it is set explicitly. Without this
+> a drag never bumps the timestamp, and `updated_at` is exposed in `CardSerializer` — the API would
+> report a stale time after every move.
 
 > **Why renumber instead of shifting neighbours:** shifting is fewer writes but leaves the column's numbering dependent on its history. Renumbering makes the invariant "positions are `0..n-1`, always" — trivially checkable, and it self-heals any drift a bug introduced earlier.
 
@@ -1704,9 +1741,35 @@ from .serializers import BoardSerializer, CardSerializer, MoveCardSerializer
 from .services import move_card, next_position
 ```
 
-and add this method to `CardViewSet`:
+and add BOTH of these methods to `CardViewSet`. Also add `from django.http import Http404` and
+`from rest_framework.exceptions import ValidationError` to the imports — but **not**
+`from rest_framework import status`, which would shadow the local variable of that name in
+`perform_create`.
 
 ```python
+    def update(self, request, *args, **kwargs):
+        # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just
+        # calls this with partial=True. An actual status CHANGE here would
+        # move the card between columns with NO renumbering — the source
+        # keeps a gap, the destination gets a duplicate position — so that's
+        # rejected in favour of the one route that renumbers correctly.
+        # Only a real change is rejected: a UI that PATCHes back the full set
+        # of fields it's holding (status included, unchanged, alongside a
+        # genuine edit like title) must not have that legitimate edit 400'd
+        # just because the status key was present in the body.
+        if "status" in request.data:
+            card = self.get_object()
+            if request.data["status"] != card.status:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "Status cannot be changed here — "
+                            "POST to /api/cards/{id}/move/ instead."
+                        )
+                    }
+                )
+        return super().update(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
         card = self.get_object()
@@ -1714,14 +1777,35 @@ and add this method to `CardViewSet`:
         serializer = MoveCardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        move_card(
-            card,
-            serializer.validated_data["status"],
-            serializer.validated_data["position"],
-        )
+        try:
+            move_card(
+                card,
+                serializer.validated_data["status"],
+                serializer.validated_data["position"],
+            )
+        except Card.DoesNotExist:
+            # The card was deleted by another request between this request's
+            # (unlocked) get_object() and move_card()'s row lock. Card.DoesNotExist
+            # is not converted to 404 by DRF's default exception handler on its
+            # own (only django.http.Http404 and PermissionDenied are) — it has to
+            # be translated explicitly, or this would surface as a 500.
+            raise Http404("Card was deleted before the move could be applied.")
         card.refresh_from_db()
         return Response(CardSerializer(card).data)
 ```
+
+> **⚠️ Both of these were added after review, and neither is optional.**
+>
+> **`update` exists because `status` is writable on `CardSerializer`.** Without this guard,
+> `PATCH /api/cards/{id}/ {"status": "done"}` changes a card's column with no renumbering at all —
+> the board-wide `0..n-1` invariant would hold only for the `/move/` route, not for the system.
+> Note it rejects a real *change*, not the mere presence of the key: a UI PATCHing back the fields
+> it holds must not lose a legitimate title edit. `status` stays writable on **create**, because
+> `perform_create` reads it to compute `next_position`.
+>
+> **The `Http404` translation is not decoration.** A bare `Card.DoesNotExist` propagating out of a
+> DRF view is a 500, not a 404 — DRF's default handler converts only `django.http.Http404` and
+> `django.core.exceptions.PermissionDenied`.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
