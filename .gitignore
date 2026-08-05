@@ -23,3 +23,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# React
+frontend/node_modules/
+frontend/dist/
