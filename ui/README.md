@@ -34,6 +34,34 @@ This is why assets live in `ui/static/` rather than `ui/`: it makes the one
 absolute path `/static/js/app.js` resolve identically under Live Server and
 under Django. Move them and Go Live breaks.
 
+## Show it to someone on the same Wi-Fi
+
+Django's port is already published on all interfaces, but `ALLOWED_HOSTS` will
+reject a request that arrives by IP until you add that IP. In `.env`:
+
+```
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.68.54
+```
+
+Find the current address with `ipconfig getifaddr en0`, then
+`docker compose up -d --force-recreate` (the container reads `.env` at start).
+Your colleague opens **http://<that-ip>:8000**.
+
+**Your router will hand out a different address eventually** — when the link
+stops working, that is almost always why. Re-check the IP and update `.env`.
+
+Use port 8000 (Django), not 5500 (Live Server). Live Server proxying `/api`
+from a different origin makes Django's CSRF check see a mismatch between the
+browser's `Origin` and the proxied host, and sign-in fails. Going straight to
+Django keeps it genuinely same-origin.
+
+⚠️ **This is a development server.** `DEBUG=1` shows tracebacks to anyone who
+triggers an error, the `seed_demo` accounts share a password committed to this
+repo, and the `admin` superuser has never been rotated (see
+`../docs/follow-ups.md`). Fine for showing a colleague across the desk; not
+something to leave running on a network you do not control, and not a substitute
+for deploying properly.
+
 ## Run it without a database
 
 Append `?data=store` to any URL — http://localhost:8000/?data=store — and the UI
