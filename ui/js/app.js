@@ -3,8 +3,13 @@
    access goes through one interface, so swapping the mock store for the real
    API is a one-line change. */
 
-const DATA_SOURCE = 'store';                       // 'store' | 'api'
-const data = DATA_SOURCE === 'api' ? Api : Store;
+/* Data source. The live API by default; append ?data=store to any URL to run
+   the seeded mock instead, which is how the design is reviewed without a
+   database. `boot` falls back to the mock automatically if the API cannot be
+   reached at all, so opening this file off a bare static server still works. */
+const FORCED = new URLSearchParams(location.search).get('data');
+let data = FORCED === 'store' ? Store : Api;
+const usingMock = () => data === Store;
 
 const root = document.getElementById('root');
 const tpl = (id) => document.getElementById(id).content.cloneNode(true);
@@ -50,9 +55,29 @@ function handle(err) {
 
 /* Boot ----------------------------------------------------------------- */
 
+function showMockBadge() {
+  const b = document.createElement('div');
+  b.className = 'mock-badge';
+  b.textContent = 'Mock data';
+  b.title = 'No backend reachable — running on the seeded store.';
+  document.body.appendChild(b);
+}
+
 async function boot() {
   try {
     await data.getCsrf();
+  } catch (err) {
+    /* An HTTP status means the API answered, so keep using it. No status at
+       all means the request never reached a server — fall back to the mock so
+       the UI stays reviewable instead of showing a dead screen. */
+    if (!err || err.status === undefined) {
+      data = Store;
+      await data.getCsrf();
+    }
+  }
+  if (usingMock()) showMockBadge();
+
+  try {
     me = await data.getMe();
     renderShell();
   } catch {
@@ -66,6 +91,9 @@ function renderLogin() {
   root.replaceChildren(tpl('tpl-login'));
   const form = root.querySelector('form');
   const errorEl = form.querySelector('[data-error]');
+
+  // The demo credentials only exist in the mock store.
+  if (!usingMock()) form.querySelector('.login-hint').remove();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

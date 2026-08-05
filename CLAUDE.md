@@ -4,6 +4,12 @@ Internal team Kanban. Django + DRF + MySQL backend (complete), with a UI still b
 
 ---
 
+## Status
+
+**Design signed off: 2026-08-05.** The prototype in `design/` is approved and Phase 2
+(development) is unlocked. The rule below is satisfied — it is kept for the record, and it
+applies again to any future redesign.
+
 ## HARD RULE — design is signed off before development starts
 
 **Do not begin product development until the design has been explicitly signed off by the user.**
@@ -31,8 +37,19 @@ exists so the product can be seen and corrected cheaply.
 
 **Phase 2 — Development.** Only after sign-off. The production implementation.
 
-Work in progress from a previous direction may exist in the repo (e.g. `frontend/`, a React
-scaffold). Leave it alone unless asked. It is not permission to resume that direction.
+## The UI is vanilla JS, on purpose
+
+`ui/` is the production front end: plain HTML, CSS and JavaScript, served directly by
+Django. **There is no build step, no npm, no `node_modules`, no framework.** Do not
+introduce one.
+
+React was specced and planned earlier, then dropped in favour of shipping the design that
+was actually signed off. Those documents are kept for the record and marked superseded:
+
+- `docs/superpowers/specs/2026-08-05-tasky-ui-design.md`
+- `docs/superpowers/plans/2026-08-05-tasky-ui.md`
+
+**They do not describe the current UI.** Read `ui/README.md` instead.
 
 ---
 

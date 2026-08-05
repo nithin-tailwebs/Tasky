@@ -12,11 +12,12 @@ const Store = (() => {
   let nextId = 100;
   const id = () => ++nextId;
 
+  // Deliberately the same people the real `seed_demo` command creates, so the
+  // mock and a seeded local database do not contradict each other.
   const users = [
-    { id: 1, username: 'alice', display_name: 'Alice Nair' },
-    { id: 2, username: 'bob',   display_name: 'Bob Ferreira' },
-    { id: 3, username: 'carol', display_name: 'Carol Mensah' },
-    { id: 4, username: 'dave',  display_name: 'Dave Okonkwo' },
+    { id: 1, username: 'asha',  display_name: 'Asha Rao' },
+    { id: 2, username: 'kabir', display_name: 'Kabir Menon' },
+    { id: 3, username: 'lena',  display_name: 'Lena Fischer' },
   ];
 
   let me = null;
@@ -52,7 +53,7 @@ const Store = (() => {
     card({ id: 15, board: 1, title: 'Rotate the dev superuser before anything is reachable',
            status: 'todo', position: 2, priority: 3, due_date: day(0), assignee: 1 }),
     card({ id: 16, board: 1, title: 'Apache reverse proxy in front of the container',
-           status: 'in_progress', position: 1, priority: 2, due_date: day(6), assignee: 4 }),
+           status: 'in_progress', position: 1, priority: 2, due_date: day(6), assignee: 2 }),
     card({ id: 17, board: 1, title: 'Session auth, same origin', status: 'done', position: 1, priority: 2, assignee: 1 }),
     card({ id: 18, board: 1, title: 'Seed command for local demo data', status: 'done', position: 2, priority: 1, assignee: 3 }),
     card({ id: 21, board: 2, title: 'Rewrite the pricing page', status: 'todo', position: 0, priority: 2, assignee: 2 }),

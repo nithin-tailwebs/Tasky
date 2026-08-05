@@ -1,23 +1,32 @@
-# Tasky — design prototype
+# Tasky — the UI
 
 Plain HTML, CSS and vanilla JavaScript. No framework, no build step, no package
-manager. This is the **design phase** deliverable: the complete UI and its
-business logic, made clickable so it can be corrected cheaply before anything is
-built for real.
+manager, no `node_modules`. Django serves this directory directly.
 
-**Nothing in `frontend/` or the React plan is in play until this is signed off.**
-See the hard rule at the top of `../CLAUDE.md`.
+The design was signed off on 2026-08-05 and this is now the production UI.
 
-## Look at it
+## Run it
 
 ```bash
-cd design && python3 -m http.server 5500
+docker compose up
 ```
 
-Then open http://127.0.0.1:5500 — sign in as `alice` with any password.
+Then open http://localhost:8000 and sign in. Local accounts come from:
 
-No backend needed. It runs on a mock store seeded with a board about building
-Tasky itself.
+```bash
+docker compose run --rm web python manage.py seed_demo
+# users: asha / kabir / lena   password: demo-password-12345
+```
+
+## Run it without a database
+
+Append `?data=store` to any URL — http://localhost:8000/?data=store — and the UI
+runs on a seeded in-memory mock instead of the API. Sign in as `asha` with any
+password. A **Mock data** badge appears bottom-right so the two are never
+confused.
+
+The same fallback happens automatically if the API cannot be reached at all, so
+the UI degrades to something reviewable rather than a dead screen.
 
 ## Files
 
@@ -30,12 +39,14 @@ Tasky itself.
 | `js/api.js` | Real data source against the live Django API. Same interface as the store |
 | `js/app.js` | Views, hash routing, drag and drop, wiring |
 
-`store.js` and `api.js` implement the same interface, so switching to the real
-backend is one line at the top of `app.js`:
+`store.js` and `api.js` implement the same interface, so nothing above them knows
+which is in play. `app.js` picks one at boot from the `?data=` parameter, with
+the automatic fallback described above.
 
-```js
-const DATA_SOURCE = 'api';   // was 'store'
-```
+Django serves this directory via `STATICFILES_DIRS`, and `index.html` doubles as
+the template the SPA catch-all route renders. Asset paths are absolute
+(`/static/js/app.js`) so a deep link like `/boards/3` resolves them correctly
+after a refresh.
 
 ## The design
 
@@ -52,10 +63,10 @@ legible in a dense column, which a row of coloured dots does not.
 engineers and aligned digits genuinely scan faster in a list. It is functional,
 not stylistic.
 
-## Honest about the rules
+## Behaviours that bite
 
-The prototype is a model of the product, not a picture of it. The mock store
-enforces what the real API enforces, so these behave correctly here:
+These are the awkward parts of the API contract. The mock store enforces every
+one of them too, so mock mode stays an honest model rather than a picture:
 
 - Sign-in failure says the same thing for an unknown username and a wrong
   password — a different message would let anyone enumerate who works here
