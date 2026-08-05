@@ -18,6 +18,22 @@ docker compose run --rm web python manage.py seed_demo
 # users: asha / kabir / lena   password: demo-password-12345
 ```
 
+## Run it from VS Code's "Go Live"
+
+`.vscode/settings.json` configures the Live Server extension, so the Go Live
+button in the status bar opens the UI in Chrome at http://127.0.0.1:5500 with
+live reload.
+
+It serves `ui/` as its root and proxies `/api` to Django on :8000, so:
+
+- **Django running** → real data, real sign-in, live reload on save
+- **Django not running** → the UI falls back to the mock store by itself and
+  shows a *Mock data* badge
+
+This is why assets live in `ui/static/` rather than `ui/`: it makes the one
+absolute path `/static/js/app.js` resolve identically under Live Server and
+under Django. Move them and Go Live breaks.
+
 ## Run it without a database
 
 Append `?data=store` to any URL — http://localhost:8000/?data=store — and the UI

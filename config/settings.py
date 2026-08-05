@@ -167,7 +167,11 @@ STATIC_URL = 'static/'
 
 # The UI is plain HTML/CSS/JS with no build step, so the source directory is
 # served directly. `collectstatic` gathers it alongside Django admin's assets.
-STATICFILES_DIRS = [BASE_DIR / 'ui']
+#
+# Assets live in ui/static/ rather than ui/ so that the SAME absolute path
+# (/static/js/app.js) resolves both here and under VS Code's Live Server when
+# it is rooted at ui/. See .vscode/settings.json.
+STATICFILES_DIRS = [BASE_DIR / 'ui' / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type

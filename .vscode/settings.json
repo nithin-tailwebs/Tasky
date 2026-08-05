@@ -1,0 +1,27 @@
+{
+  // "Go Live" (Live Server extension) config for the Tasky UI.
+  //
+  // Root is ui/, so http://127.0.0.1:5500/ serves ui/index.html and
+  // /static/js/app.js resolves to ui/static/js/app.js — the same absolute
+  // path Django serves in production. That is why assets live in ui/static/.
+  //
+  // /api is proxied to Django, so signing in and real data work if the
+  // backend is up (`docker compose up`). If it is not, the UI falls back to
+  // its seeded mock store on its own and shows a "Mock data" badge, so
+  // Go Live is useful either way.
+  "liveServer.settings.root": "/ui",
+  "liveServer.settings.CustomBrowser": "chrome",
+  "liveServer.settings.host": "127.0.0.1",
+  "liveServer.settings.port": 5500,
+  "liveServer.settings.proxy": {
+    "enable": true,
+    "baseUri": "/api",
+    "proxyUri": "http://127.0.0.1:8000/api"
+  },
+  "liveServer.settings.donotShowInfoMsg": true,
+  "liveServer.settings.ignoreFiles": [
+    "**/.git/**",
+    "**/staticfiles/**",
+    "**/__pycache__/**"
+  ]
+}
