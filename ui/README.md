@@ -37,15 +37,21 @@ under Django. Move them and Go Live breaks.
 ## Show it to someone on the same Wi-Fi
 
 Django's port is already published on all interfaces, but `ALLOWED_HOSTS` will
-reject a request that arrives by IP until you add that IP. In `.env`:
+reject a request that arrives by IP until you add that IP.
+
+```bash
+ipconfig getifaddr en0          # e.g. 192.168.1.42
+```
+
+Put it in `.env` (which is gitignored, so this stays on your machine):
 
 ```
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.68.54
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.42
 ```
 
-Find the current address with `ipconfig getifaddr en0`, then
-`docker compose up -d --force-recreate` (the container reads `.env` at start).
-Your colleague opens **http://<that-ip>:8000**.
+Then `docker compose up -d --force-recreate` — the container reads `.env` at
+start, so a plain restart is not enough. Your colleague opens
+**http://&lt;that-ip&gt;:8000**.
 
 **Your router will hand out a different address eventually** — when the link
 stops working, that is almost always why. Re-check the IP and update `.env`.
