@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tasky</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div id="root"></div>
+
+<!-- Templates ---------------------------------------------------------- -->
+
+<template id="tpl-login">
+  <div class="login">
+    <form class="login-card" novalidate>
+      <p class="eyebrow">Tasky</p>
+      <h1>Sign in</h1>
+      <p class="login-note">Accounts are created by an admin. Ask one of them if you don't have one yet.</p>
+      <label class="field">
+        <span>Username</span>
+        <input name="username" autocomplete="username" autofocus required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" data-error hidden></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <p class="login-hint">Mock data: <code>asha</code> / any password</p>
+    </form>
+  </div>
+</template>
+
+<template id="tpl-shell">
+  <header class="topbar">
+    <a class="brand" href="#/boards">Tasky</a>
+    <nav class="nav">
+      <a href="#/boards" data-nav="boards">Boards</a>
+      <a href="#/my-tasks" data-nav="my-tasks">My tasks</a>
+    </nav>
+    <div class="topbar-end">
+      <span class="who" data-who></span>
+      <button class="btn btn-quiet" data-signout>Sign out</button>
+    </div>
+  </header>
+  <main class="main" data-main></main>
+</template>
+
+<template id="tpl-boards">
+  <div class="page page-narrow">
+    <div class="page-head">
+      <h1>Boards</h1>
+      <p class="page-sub">Everyone on the team sees every board.</p>
+    </div>
+
+    <form class="inline-create" data-create-board>
+      <input name="name" placeholder="Name a new board" aria-label="New board name" required>
+      <button class="btn btn-primary" type="submit">Create board</button>
+    </form>
+
+    <ul class="board-list" data-list></ul>
+  </div>
+</template>
+
+<template id="tpl-board">
+  <div class="page">
+    <div class="board-head">
+      <div>
+        <a class="back" href="#/boards">All boards</a>
+        <h1 data-board-name></h1>
+        <p class="page-sub" data-board-desc></p>
+      </div>
+      <p class="legend">
+        <span class="legend-item"><i class="rule-demo p1"></i>Low</span>
+        <span class="legend-item"><i class="rule-demo p2"></i>Medium</span>
+        <span class="legend-item"><i class="rule-demo p3"></i>High</span>
+        <span class="legend-item"><i class="rule-demo overdue"></i>Overdue</span>
+      </p>
+    </div>
+    <div class="columns" data-columns></div>
+  </div>
+</template>
+
+<template id="tpl-my-tasks">
+  <div class="page page-narrow">
+    <div class="page-head">
+      <h1>My tasks</h1>
+      <p class="page-sub">Everything open and assigned to you, soonest due first.</p>
+    </div>
+    <ul class="task-list" data-list></ul>
+  </div>
+</template>
+
+<script src="/static/js/logic.js"></script>
+<script src="/static/js/store.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

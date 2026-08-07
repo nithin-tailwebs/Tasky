@@ -1,6 +1,15 @@
 # Tasky — React UI · Design
 
-**Status:** v1.0 — agreed, ready for implementation planning
+> ## ⛔ SUPERSEDED — 2026-08-05
+>
+> React was dropped. The shipped UI is plain HTML and vanilla JavaScript in `ui/`,
+> with no build step. See `ui/README.md`.
+>
+> This document is kept only as a record of the decisions and the reasoning behind
+> them. **Do not implement from it.** The API observations in §5 and §6 are still
+> accurate and were carried into `ui/js/logic.js`.
+
+**Status:** superseded (was: v1.0 — agreed, ready for implementation planning)
 **Date:** 2026-08-05
 **Builds on:** `docs/superpowers/specs/2026-07-29-team-kanban-design.md` (product decisions)
 **Contract:** `docs/api.md` — the API is complete, reviewed and merged. This spec does not change it.
