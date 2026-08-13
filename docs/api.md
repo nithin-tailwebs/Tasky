@@ -23,8 +23,8 @@ is the `csrftoken` cookie. Call `GET /api/auth/csrf/` once on app load to be han
 ## Boards
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/boards/` | every board; unpaginated |
-| POST | `/api/boards/` | `{name, description?}`; `description` is optional; creator is taken from the session |
+| GET | `/api/boards/` | every board in a project I'm a member of; unpaginated |
+| POST | `/api/boards/` | `{project, name, description?}`; `description` is optional; creator is taken from the session; `project` must be one I'm a member of |
 | GET/PUT/PATCH/DELETE | `/api/boards/{id}/` | |
 | GET | `/api/boards/{id}/cards/` | every card on the board — see the ordering note below |
 
@@ -38,10 +38,40 @@ client must **group the response by `status` itself** (into `todo` / `in_progres
 / `done` buckets) before rendering columns; do not assume the API hands back
 already-grouped or already-column-ordered data.
 
+**`project` cannot be changed via `PATCH`/`PUT` on `/api/boards/{id}/`** — boards do not
+move between projects, mirroring the rule already in place for `status` and `board` on
+cards. A `PATCH` that echoes back the board's current, unchanged `project` alongside
+other real edits is accepted.
+
+## Projects
+Every board and card now lives inside a project. Membership is invite-only — nobody
+joins a project by any route other than accepting a pending invitation.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/projects/` | projects I'm a member of |
+| POST | `/api/projects/` | `{key, name, description?}`; `key` is 2–10 letters, case-insensitive on input but stored uppercase, unique across the system; creator becomes Owner |
+| GET | `/api/projects/{id}/` | 403 if I'm not a member (not 404 — see below), 404 if the id doesn't exist at all |
+| DELETE | `/api/projects/{id}/` | Owner only; cascades to the project's boards, cards, comments, memberships and invitations |
+| GET | `/api/projects/{id}/members/` | sorted Owner, then Admin, then Member |
+| DELETE | `/api/projects/{id}/members/{user_id}/` | removes a member; also doubles as "leave" when `user_id` is your own — Owner can remove anyone but themself (and cannot leave without transferring ownership first, 400 if they try), Admin can remove Members only (but can leave freely), Member can only leave |
+| POST | `/api/projects/{id}/members/{user_id}/role/` | `{role: "admin"\|"member"}`; Owner only; the Owner's own role can't be changed here |
+| POST | `/api/projects/{id}/transfer-ownership/` | `{user_id}`; Owner only; target must already be an Admin; the caller becomes an Admin |
+| POST | `/api/projects/{id}/invite/` | `{user_id}`; Owner or Admin; 400 if already a member or already invited |
+
+**A non-member touching a project (or its boards/cards) gets `403`, not `404`.** A
+genuinely nonexistent id still 404s — existence is checked first, membership second.
+
+Every project role is one of `owner`, `admin`, `member`. There is exactly one Owner at
+all times; the Owner cannot leave a project without transferring ownership to an
+existing Admin first (there is no "leave" endpoint of its own — the client models
+"leave" as removing your own membership, subject to the same owner restriction as any
+other removal).
+
 ## Cards
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/cards/` | **every card in the system, unscoped by board** — not filtered to "my boards" or any board in particular |
+| GET | `/api/cards/` | every card on a board in a project I'm a member of — not filtered to "my boards" specifically, but scoped by project membership |
 | POST | `/api/cards/` | `{board, title, description?, status?, priority?, due_date?, assignee?}`; `status` defaults to `todo` when omitted |
 | GET/PUT/PATCH/DELETE | `/api/cards/{id}/` | `position` is read-only here; `status` and `board` cannot be changed here either — see below |
 | POST | `/api/cards/{id}/move/` | `{status, position}` — the drag-and-drop endpoint; returns the updated card, or 404 if the card was deleted before the move could be applied |
@@ -63,8 +93,15 @@ Card responses also carry read-only extras beyond the writable fields above: `as
 | GET/POST | `/api/cards/{id}/comments/` | POST takes `{body}`; author comes from the session |
 | DELETE | `/api/comments/{id}/` | if the comment has an author, only that author can delete it (otherwise 403); if the comment's author account has been deleted (`author` is `null`), any signed-in user can delete it |
 
+## Invitations
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/invitations/` | my own pending invitations |
+| POST | `/api/invitations/{id}/accept/` | creates a Member-role membership; 403 if it isn't your invitation |
+| POST | `/api/invitations/{id}/decline/` | 403 if it isn't your invitation |
+
 ## Me
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/me/tasks/` | my open cards across every board, soonest due first |
+| GET | `/api/me/tasks/` | my open cards in a project I'm still a member of, soonest due first |
 | GET | `/api/users/` | `id`, `username`, `display_name` for the assignee dropdown |
