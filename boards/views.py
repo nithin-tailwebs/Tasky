@@ -2,9 +2,11 @@ from django.http import Http404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from projects.models import ProjectMembership
+from projects.permissions import IsProjectMember
 
 from .models import Board, Card, Comment
 from .serializers import (
@@ -21,9 +23,10 @@ class BoardViewSet(viewsets.ModelViewSet):
 
     serializer_class = BoardSerializer
     pagination_class = None
+    permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get_queryset(self):
-        qs = Board.objects.select_related("created_by")
+        qs = Board.objects.select_related("project", "created_by")
         if self.action == "list":
             qs = qs.filter(
                 project_id__in=ProjectMembership.objects.filter(
@@ -35,6 +38,16 @@ class BoardViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    def update(self, request, *args, **kwargs):
+        # Boards do not move between projects — same "echo-back-unchanged-is-
+        # fine, a real change is rejected" rule Card already applies to
+        # status/board.
+        if "project" in request.data:
+            board = self.get_object()
+            if str(request.data["project"]) != str(board.project_id):
+                raise ValidationError({"project": "Boards cannot be moved between projects."})
+        return super().update(request, *args, **kwargs)
+
     @action(detail=True, methods=["get"])
     def cards(self, request, pk=None):
         board = self.get_object()
@@ -43,9 +56,19 @@ class BoardViewSet(viewsets.ModelViewSet):
 
 
 class CardViewSet(viewsets.ModelViewSet):
-    queryset = Card.objects.select_related("board", "assignee", "created_by")
     serializer_class = CardSerializer
     pagination_class = None
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get_queryset(self):
+        qs = Card.objects.select_related("board__project", "assignee", "created_by")
+        if self.action == "list":
+            qs = qs.filter(
+                board__project_id__in=ProjectMembership.objects.filter(
+                    user=self.request.user
+                ).values_list("project_id", flat=True)
+            )
+        return qs
 
     def perform_create(self, serializer):
         board = serializer.validated_data["board"]
@@ -132,8 +155,11 @@ class CardViewSet(viewsets.ModelViewSet):
 class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
     """Deletion only — comments are created through the card's own endpoint."""
 
-    queryset = Comment.objects.select_related("author")
     serializer_class = CommentSerializer
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get_queryset(self):
+        return Comment.objects.select_related("author", "card__board__project")
 
     def perform_destroy(self, instance):
         # An authorless comment (its author's account was deleted, which

@@ -67,6 +67,10 @@ class Card(models.Model):
     def __str__(self) -> str:
         return self.title
 
+    @property
+    def project(self):
+        return self.board.project
+
 
 class Comment(models.Model):
     card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="comments")
@@ -84,3 +88,7 @@ class Comment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.author} on {self.card}"
+
+    @property
+    def project(self):
+        return self.card.board.project

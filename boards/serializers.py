@@ -12,6 +12,12 @@ class BoardSerializer(serializers.ModelSerializer):
         model = Board
         fields = ["id", "project", "name", "description", "created_by", "created_at", "updated_at"]
 
+    def validate_project(self, value):
+        request = self.context["request"]
+        if not value.memberships.filter(user=request.user).exists():
+            raise serializers.ValidationError("You must be a member of this project to create a board in it.")
+        return value
+
 
 class CardSerializer(serializers.ModelSerializer):
     assignee_detail = UserSerializer(source="assignee", read_only=True)
@@ -27,6 +33,12 @@ class CardSerializer(serializers.ModelSerializer):
             "position", "created_by", "created_at", "updated_at",
         ]
         read_only_fields = ["position"]
+
+    def validate_board(self, value):
+        request = self.context["request"]
+        if not value.project.memberships.filter(user=request.user).exists():
+            raise serializers.ValidationError("You must be a member of this board's project.")
+        return value
 
 
 class MoveCardSerializer(serializers.Serializer):
