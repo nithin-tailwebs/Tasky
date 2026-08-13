@@ -10,7 +10,7 @@ class BoardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Board
-        fields = ["id", "name", "description", "created_by", "created_at", "updated_at"]
+        fields = ["id", "project", "name", "description", "created_by", "created_at", "updated_at"]
 
 
 class CardSerializer(serializers.ModelSerializer):

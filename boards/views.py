@@ -4,6 +4,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
+from projects.models import ProjectMembership
+
 from .models import Board, Card, Comment
 from .serializers import (
     BoardSerializer,
@@ -15,11 +17,20 @@ from .services import move_card, next_position
 
 
 class BoardViewSet(viewsets.ModelViewSet):
-    """Every signed-in person sees every board — the team is small and shares its work."""
+    """Boards are scoped to the projects a person belongs to."""
 
-    queryset = Board.objects.select_related("created_by")
     serializer_class = BoardSerializer
     pagination_class = None
+
+    def get_queryset(self):
+        qs = Board.objects.select_related("created_by")
+        if self.action == "list":
+            qs = qs.filter(
+                project_id__in=ProjectMembership.objects.filter(
+                    user=self.request.user
+                ).values_list("project_id", flat=True)
+            )
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
