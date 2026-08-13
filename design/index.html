@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tasky — Projects &amp; Membership (prototype)</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="root"></div>
+
+<!-- Templates ---------------------------------------------------------- -->
+
+<template id="tpl-login">
+  <div class="login">
+    <form class="login-card" novalidate>
+      <p class="eyebrow">Tasky</p>
+      <h1>Sign in</h1>
+      <p class="login-note">Accounts are created by an admin. Membership in any project is invite-only.</p>
+      <label class="field">
+        <span>Username</span>
+        <input name="username" autocomplete="username" autofocus required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" data-error hidden></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <p class="login-hint">Try <code>asha</code>, <code>kabir</code> or <code>lena</code> — any password</p>
+    </form>
+  </div>
+</template>
+
+<template id="tpl-shell">
+  <header class="topbar">
+    <a class="brand" href="#/projects">Tasky</a>
+    <nav class="nav">
+      <a href="#/projects" class="is-active">Projects</a>
+    </nav>
+    <div class="topbar-end">
+      <span class="who" data-who></span>
+      <button class="btn btn-quiet" data-signout>Sign out</button>
+    </div>
+  </header>
+  <main class="main" data-main></main>
+</template>
+
+<template id="tpl-projects">
+  <div class="page page-narrow">
+    <div class="page-head">
+      <h1>Projects</h1>
+      <p class="page-sub">Everything you're a member of. No one joins without an invite.</p>
+    </div>
+
+    <section class="invitations" data-invitations hidden>
+      <h2 class="section-label">Pending invitations</h2>
+      <ul class="invite-list" data-invite-list></ul>
+    </section>
+
+    <form class="create-project" data-create-project novalidate>
+      <input name="name" placeholder="Project name" aria-label="Project name" required>
+      <input name="key" placeholder="KEY" aria-label="Project key" maxlength="10" class="key-input" required>
+      <button class="btn btn-primary" type="submit">Create project</button>
+    </form>
+    <p class="form-error" data-create-error hidden></p>
+
+    <ul class="project-list" data-list></ul>
+  </div>
+</template>
+
+<template id="tpl-project">
+  <div class="page">
+    <div class="board-head">
+      <div>
+        <a class="back" href="#/projects">All projects</a>
+        <div class="project-title-row">
+          <h1 data-project-name></h1>
+          <span class="key-pill" data-project-key></span>
+          <span class="role-badge" data-my-role></span>
+        </div>
+        <p class="page-sub" data-project-desc></p>
+      </div>
+      <div class="project-head-actions">
+        <select class="switcher" data-switcher aria-label="Switch project"></select>
+        <div class="page-actions" data-actions></div>
+      </div>
+    </div>
+
+    <section class="boards-stub">
+      <p class="eyebrow">Boards</p>
+      <p class="stub-note">Boards live inside this project in production, unchanged from today's board experience. This prototype is scoped to Projects &amp; Membership (sub-project 1 of 7) — see the design spec for what's next.</p>
+    </section>
+
+    <section>
+      <h2 class="section-label">Members</h2>
+      <ul class="member-list" data-members></ul>
+    </section>
+
+    <section data-pending-section hidden>
+      <h2 class="section-label">Invitations sent</h2>
+      <ul class="invite-list" data-pending-invites></ul>
+    </section>
+  </div>
+</template>
+
+<script src="js/logic.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

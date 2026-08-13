@@ -1,0 +1,427 @@
+/* Tasky — design prototype
+   Thesis: colour is attention. Only in-progress work is saturated;
+   To Do stays neutral and Done recedes. The one decorative liberty is
+   the card's left edge rule, which encodes priority by thickness and
+   overdue by colour. */
+
+:root {
+  --paper:    #FBFAF8;
+  --surface:  #FFFFFF;
+  --sunk:     #F2F1ED;
+  --ink:      #191916;
+  --ink-2:    #5C5C55;
+  --ink-3:    #8E8E85;
+  --rule:     #E4E3DC;
+  --rule-2:   #CFCEC5;
+  --accent:   #3B3F8F;
+  --accent-w: #EEEEF6;
+  --danger:   #A32218;
+  --danger-w: #FBEFEE;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --r: 3px;
+  --shadow-lift: 0 6px 18px rgba(25, 25, 22, .13);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.011em; }
+h1 { font-size: 21px; }
+p  { margin: 0; }
+a  { color: inherit; }
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.mono, time, .count { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Buttons ------------------------------------------------------------- */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  padding: 6px 12px;
+  border-radius: var(--r);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.btn:hover { background: var(--sunk); }
+.btn:active { transform: scale(.96); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.btn[disabled]:active { transform: none; }
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.btn-primary:hover { background: #000; }
+
+.btn-quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn-quiet:hover { background: var(--sunk); color: var(--ink); }
+
+.btn-danger { border-color: transparent; background: transparent; color: var(--danger); }
+.btn-danger:hover { background: var(--danger-w); }
+
+/* Fields -------------------------------------------------------------- */
+
+.field { display: block; margin-bottom: 12px; }
+.field > span {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.field input, .field textarea, .field select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 7px 9px;
+}
+.field textarea { resize: vertical; min-height: 76px; }
+
+.form-error {
+  background: var(--danger-w);
+  color: var(--danger);
+  border-radius: var(--r);
+  padding: 7px 9px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+/* Login --------------------------------------------------------------- */
+
+.login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+
+.login-card {
+  width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 28px;
+}
+.login-card h1 { margin: 2px 0 6px; }
+.login-note { color: var(--ink-2); margin-bottom: 20px; }
+.login-card .btn-primary { width: 100%; margin-top: 4px; }
+.login-hint {
+  margin-top: 14px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.login-hint code { font-family: var(--mono); color: var(--ink-2); }
+
+/* Shell --------------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  height: 46px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.brand { font-weight: 600; text-decoration: none; letter-spacing: -.02em; }
+
+.nav { display: flex; gap: 4px; }
+.nav a {
+  text-decoration: none;
+  color: var(--ink-2);
+  padding: 4px 9px;
+  border-radius: var(--r);
+  transition: background .12s ease, color .12s ease;
+}
+.nav a:hover { background: var(--sunk); color: var(--ink); }
+.nav a.is-active { color: var(--ink); background: var(--sunk); font-weight: 500; }
+
+.topbar-end { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.who { color: var(--ink-3); font-size: 12px; }
+
+.main { padding: 24px 20px 48px; }
+.page-narrow { max-width: 680px; margin: 0 auto; }
+
+.page-head { margin-bottom: 18px; }
+.page-sub { color: var(--ink-2); margin-top: 3px; }
+
+/* Board head (also used as the project head) --------------------------- */
+
+.board-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+.back {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-decoration: none;
+  margin-bottom: 5px;
+}
+.back:hover { color: var(--ink); }
+
+/* Modal ----------------------------------------------------------------- */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 25, 22, .28);
+  display: grid;
+  place-items: start center;
+  padding: 6vh 16px 16px;
+  z-index: 40;
+  overflow-y: auto;
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+.scrim.is-open { opacity: 1; }
+
+.modal {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lift);
+  padding: 22px;
+  transform: translateY(6px) scale(.98);
+  opacity: 0;
+  transition: transform .18s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
+}
+.scrim.is-open .modal { transform: translateY(0) scale(1); opacity: 1; }
+
+.modal-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.modal-head .eyebrow { flex: 1; }
+
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+/* States ------------------------------------------------------------- */
+
+.empty {
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r);
+  padding: 22px;
+  text-align: center;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 9px 15px;
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lift);
+  z-index: 60;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+  transition: opacity .18s ease, transform .18s cubic-bezier(.2, .8, .2, 1);
+}
+.toast.is-open { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.bad { background: var(--danger); }
+
+.loading { color: var(--ink-3); padding: 8px 2px; }
+
+/* Skeleton loading — a shape of the content, not a spinner, so the layout
+   doesn't jump when real data lands. */
+.skeleton-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.skeleton-row {
+  height: 46px;
+  border-radius: var(--r);
+  background: linear-gradient(90deg, var(--sunk) 25%, var(--rule) 37%, var(--sunk) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+/* Page + row entrance — subtle, so navigating between screens feels like
+   one continuous surface rather than a hard cut. */
+.page { animation: page-in .18s ease both; }
+@keyframes page-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Projects & Membership (sub-project 1 of 7) ---------------------------- */
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 400;
+  margin: 0 0 10px;
+}
+
+.invitations { margin-bottom: 22px; }
+
+.create-project { display: flex; gap: 8px; margin: 0 0 8px; }
+.create-project input {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 7px 10px;
+}
+.create-project input[name=name] { flex: 1; }
+.create-project .key-input {
+  width: 110px;
+  text-transform: uppercase;
+  font-family: var(--mono);
+  letter-spacing: .06em;
+}
+
+.project-list { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 8px; }
+
+.project-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 13px 15px;
+  text-decoration: none;
+  animation: row-in .22s cubic-bezier(.2, .8, .2, 1) both;
+  transition: border-color .12s ease, box-shadow .12s ease, transform .12s ease;
+}
+.project-row:hover { border-color: var(--rule-2); box-shadow: 0 2px 8px rgba(25, 25, 22, .06); transform: translateY(-1px); }
+.project-row .name { font-weight: 500; }
+.project-row .desc { color: var(--ink-2); flex: 1; }
+.project-row .tally { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+
+.key-pill { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+.role-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.role-badge.role-owner  { color: var(--accent); border-color: var(--accent); background: var(--accent-w); }
+.role-badge.role-admin  { color: var(--ink); border-color: var(--rule-2); background: var(--sunk); }
+.role-badge.role-member { color: var(--ink-3); }
+
+.invite-list, .member-list { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 7px; }
+
+.invite-row, .member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 11px 14px;
+  animation: row-in .22s cubic-bezier(.2, .8, .2, 1) both;
+  transition: border-color .12s ease;
+}
+.invite-row:hover, .member-row:hover { border-color: var(--rule-2); }
+.invite-row .who, .member-row .who { font-weight: 500; flex: 1; }
+.invite-row .sub, .member-row .sub { color: var(--ink-3); font-size: 11px; font-weight: 400; }
+.invite-row .actions, .member-row .actions { display: flex; align-items: center; gap: 6px; }
+
+.role-select {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.role-select:hover { border-color: var(--ink-3); background: var(--sunk); }
+
+.project-title-row { display: flex; align-items: center; gap: 10px; }
+.project-head-actions { display: flex; align-items: center; gap: 10px; }
+.page-actions { display: flex; gap: 8px; }
+
+.switcher {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 6px 9px;
+  font-size: 12px;
+  max-width: 220px;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.switcher:hover { border-color: var(--ink-3); background: var(--sunk); }
+
+.boards-stub {
+  background: var(--sunk);
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 22px;
+}
+.boards-stub .stub-note { color: var(--ink-2); margin-top: 4px; }
+
+/* Responsive ---------------------------------------------------------- */
+
+@media (max-width: 880px) {
+  .board-head { flex-direction: column; align-items: flex-start; }
+  .who { display: none; }
+  .create-project { flex-direction: column; }
+  .create-project .key-input { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
