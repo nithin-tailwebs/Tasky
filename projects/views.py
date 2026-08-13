@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -156,3 +157,40 @@ class ProjectViewSet(
         return Response(
             InvitationSerializer(invitation, context={"request": request}).data, status=201
         )
+
+
+class InvitationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = InvitationSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return Invitation.objects.filter(
+            invited_user=self.request.user, status=Invitation.Status.PENDING
+        ).select_related("project", "invited_by")
+
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        invitation = get_object_or_404(Invitation, pk=pk)
+        if invitation.invited_user_id != request.user.id:
+            raise PermissionDenied("You can only respond to your own invitations.")
+
+        invitation.status = Invitation.Status.ACCEPTED
+        invitation.responded_at = timezone.now()
+        invitation.save()
+        ProjectMembership.objects.get_or_create(
+            project=invitation.project,
+            user=request.user,
+            defaults={"role": ProjectMembership.Role.MEMBER},
+        )
+        return Response(status=204)
+
+    @action(detail=True, methods=["post"])
+    def decline(self, request, pk=None):
+        invitation = get_object_or_404(Invitation, pk=pk)
+        if invitation.invited_user_id != request.user.id:
+            raise PermissionDenied("You can only respond to your own invitations.")
+
+        invitation.status = Invitation.Status.DECLINED
+        invitation.responded_at = timezone.now()
+        invitation.save()
+        return Response(status=204)
