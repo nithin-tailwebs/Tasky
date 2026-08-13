@@ -87,6 +87,22 @@ def test_the_owner_can_delete_a_project(auth_client, user):
 
 
 @pytest.mark.django_db
+def test_editing_a_project_is_not_allowed(auth_client, user):
+    project = Project.objects.create(key="TASKY", name="Tasky Redesign")
+    ProjectMembership.objects.create(project=project, user=user, role="owner")
+
+    put_response = auth_client.put(
+        f"/api/projects/{project.id}/", {"key": "TASKY", "name": "Renamed"}, content_type="application/json"
+    )
+    patch_response = auth_client.patch(
+        f"/api/projects/{project.id}/", {"name": "Renamed"}, content_type="application/json"
+    )
+
+    assert put_response.status_code == 405
+    assert patch_response.status_code == 405
+
+
+@pytest.mark.django_db
 def test_deleting_a_project_cascades_to_its_boards(auth_client, user):
     from boards.models import Board
 
