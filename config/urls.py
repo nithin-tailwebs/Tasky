@@ -8,6 +8,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("accounts.urls")),
     path("api/", include("boards.urls")),
+    path("api/", include("projects.urls")),
     path("api/me/tasks/", MyTasksView.as_view(), name="my-tasks"),
     # Last on purpose. Registered any earlier this swallows /api/ and /admin/.
     # The negative lookahead is belt and braces — routing already tries the
