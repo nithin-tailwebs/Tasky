@@ -6,8 +6,8 @@ from boards.views import CardViewSet
 
 
 @pytest.fixture
-def board(user):
-    return Board.objects.create(name="Test Board", created_by=user)
+def board(user, project):
+    return Board.objects.create(name="Test Board", created_by=user, project=project)
 
 
 @pytest.fixture
@@ -131,8 +131,8 @@ def test_positions_stay_contiguous_from_zero(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_a_move_never_touches_another_board(auth_client, board, todo_cards, user):
-    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+def test_a_move_never_touches_another_board(auth_client, board, todo_cards, user, project):
+    other_board = Board.objects.create(name="Elsewhere", created_by=user, project=project)
     untouched = Card.objects.create(
         board=other_board, title="Untouched", status="todo", position=7
     )

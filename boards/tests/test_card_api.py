@@ -4,8 +4,8 @@ from boards.models import Board, Card
 
 
 @pytest.fixture
-def board(user):
-    return Board.objects.create(name="Test Board", created_by=user)
+def board(user, project):
+    return Board.objects.create(name="Test Board", created_by=user, project=project)
 
 
 @pytest.mark.django_db
@@ -14,10 +14,10 @@ def test_anonymous_callers_are_rejected(client, board):
 
 
 @pytest.mark.django_db
-def test_listing_a_boards_cards(auth_client, board, user):
+def test_listing_a_boards_cards(auth_client, board, user, project):
     Card.objects.create(board=board, title="First", position=0)
     Card.objects.create(board=board, title="Second", position=1)
-    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+    other_board = Board.objects.create(name="Elsewhere", created_by=user, project=project)
     Card.objects.create(board=other_board, title="Not mine")
 
     response = auth_client.get(f"/api/boards/{board.id}/cards/")
@@ -98,8 +98,8 @@ def test_unassigning_a_card(auth_client, board, other_user):
 
 
 @pytest.mark.django_db
-def test_listing_all_cards_is_unscoped_by_board(auth_client, board, user):
-    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+def test_listing_all_cards_is_unscoped_by_board(auth_client, board, user, project):
+    other_board = Board.objects.create(name="Elsewhere", created_by=user, project=project)
     Card.objects.create(board=board, title="Mine", position=0)
     Card.objects.create(board=other_board, title="Also visible", position=0)
 
@@ -202,8 +202,8 @@ def test_patching_title_still_works(auth_client, board):
 
 
 @pytest.mark.django_db
-def test_patching_board_is_rejected(auth_client, board, user):
-    other_board = Board.objects.create(name="Elsewhere", created_by=user)
+def test_patching_board_is_rejected(auth_client, board, user, project):
+    other_board = Board.objects.create(name="Elsewhere", created_by=user, project=project)
     card = Card.objects.create(board=board, title="Untouched", status="todo")
 
     response = auth_client.patch(

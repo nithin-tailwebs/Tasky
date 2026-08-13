@@ -6,8 +6,8 @@ from boards.models import Board, Card
 
 
 @pytest.fixture
-def board(user):
-    return Board.objects.create(name="Test Board", created_by=user)
+def board(user, project):
+    return Board.objects.create(name="Test Board", created_by=user, project=project)
 
 
 @pytest.mark.django_db
@@ -28,8 +28,8 @@ def test_only_my_cards_come_back(auth_client, board, user, other_user):
 
 
 @pytest.mark.django_db
-def test_my_cards_span_every_board(auth_client, board, user):
-    second_board = Board.objects.create(name="Second", created_by=user)
+def test_my_cards_span_every_board(auth_client, board, user, project):
+    second_board = Board.objects.create(name="Second", created_by=user, project=project)
     Card.objects.create(board=board, title="From board one", assignee=user)
     Card.objects.create(board=second_board, title="From board two", assignee=user)
 

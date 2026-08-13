@@ -4,8 +4,8 @@ from boards.models import Board, Card, Comment
 
 
 @pytest.fixture
-def board(user):
-    return Board.objects.create(name="Test Board", created_by=user)
+def board(user, project):
+    return Board.objects.create(name="Test Board", created_by=user, project=project)
 
 
 @pytest.fixture

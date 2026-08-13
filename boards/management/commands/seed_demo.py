@@ -15,6 +15,7 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 
 from boards.models import Board, Card
+from projects.models import Project, ProjectMembership
 
 DEMO_PASSWORD = "demo-password-12345"
 
@@ -75,12 +76,24 @@ class Command(BaseCommand):
                 person.save()
             people.append(person)
 
+        project, _ = Project.objects.get_or_create(
+            key="TASKY",
+            defaults={"name": "Tasky Demo", "description": "Seeded demo project."},
+        )
+        for index, person in enumerate(people):
+            ProjectMembership.objects.get_or_create(
+                project=project,
+                user=person,
+                defaults={"role": "owner" if index == 0 else "member"},
+            )
+
         for index, (board_name, cards) in enumerate(BOARDS.items()):
             board, created = Board.objects.get_or_create(
                 name=board_name,
                 defaults={
                     "description": f"Demo board: {board_name}",
                     "created_by": people[0],
+                    "project": project,
                 },
             )
             if not created:

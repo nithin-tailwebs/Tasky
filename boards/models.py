@@ -5,6 +5,7 @@ from django.db import models
 class Board(models.Model):
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
+    project = models.ForeignKey("projects.Project", on_delete=models.CASCADE, related_name="boards")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -7,8 +7,8 @@ from boards.services import next_position
 
 
 @pytest.fixture
-def board(user):
-    return Board.objects.create(name="Test Board", created_by=user)
+def board(user, project):
+    return Board.objects.create(name="Test Board", created_by=user, project=project)
 
 
 @pytest.mark.django_db

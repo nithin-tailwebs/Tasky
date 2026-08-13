@@ -20,3 +20,12 @@ def other_user(db):
 def auth_client(client, user):
     client.force_login(user)
     return client
+
+
+@pytest.fixture
+def project(user):
+    from projects.models import Project, ProjectMembership
+
+    project = Project.objects.create(key="TASKY", name="Tasky Redesign")
+    ProjectMembership.objects.create(project=project, user=user, role="owner")
+    return project
