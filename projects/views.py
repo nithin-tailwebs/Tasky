@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -5,9 +6,24 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Project, ProjectMembership
-from .permissions import IsProjectMember, can_change_role, can_delete_project, can_leave, can_remove
-from .serializers import ChangeRoleSerializer, ProjectMembershipSerializer, ProjectSerializer
+from .models import Invitation, Project, ProjectMembership
+from .permissions import (
+    IsProjectMember,
+    can_change_role,
+    can_delete_project,
+    can_invite,
+    can_leave,
+    can_remove,
+    can_transfer_ownership,
+)
+from .serializers import (
+    ChangeRoleSerializer,
+    InvitationSerializer,
+    InviteSerializer,
+    ProjectMembershipSerializer,
+    ProjectSerializer,
+    TransferOwnershipSerializer,
+)
 
 ROLE_ORDER = {"owner": 0, "admin": 1, "member": 2}
 
@@ -91,3 +107,52 @@ class ProjectViewSet(
         target.role = serializer.validated_data["role"]
         target.save()
         return Response(ProjectMembershipSerializer(target).data)
+
+    @action(detail=True, methods=["post"], url_path="transfer-ownership")
+    def transfer_ownership(self, request, pk=None):
+        project = self.get_object()
+        acting = project.memberships.get(user=request.user)
+        if not can_transfer_ownership(acting.role):
+            raise PermissionDenied("Only the owner can transfer ownership.")
+
+        serializer = TransferOwnershipSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_owner = serializer.validated_data["user"]
+
+        target = project.memberships.filter(user=new_owner, role=ProjectMembership.Role.ADMIN).first()
+        if target is None:
+            raise ValidationError(
+                {"user_id": "Ownership can only be transferred to an existing Admin."}
+            )
+
+        with transaction.atomic():
+            acting.role = ProjectMembership.Role.ADMIN
+            acting.save()
+            target.role = ProjectMembership.Role.OWNER
+            target.save()
+        return Response(status=204)
+
+    @action(detail=True, methods=["post"], url_path="invite")
+    def invite(self, request, pk=None):
+        project = self.get_object()
+        acting = project.memberships.get(user=request.user)
+        if not can_invite(acting.role):
+            raise PermissionDenied("You don't have permission to invite members.")
+
+        serializer = InviteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invited_user = serializer.validated_data["user"]
+
+        if project.memberships.filter(user=invited_user).exists():
+            raise ValidationError({"user_id": "Already a member of this project."})
+        if Invitation.objects.filter(
+            project=project, invited_user=invited_user, status=Invitation.Status.PENDING
+        ).exists():
+            raise ValidationError({"user_id": "Already invited — waiting on a response."})
+
+        invitation = Invitation.objects.create(
+            project=project, invited_user=invited_user, invited_by=request.user
+        )
+        return Response(
+            InvitationSerializer(invitation, context={"request": request}).data, status=201
+        )
