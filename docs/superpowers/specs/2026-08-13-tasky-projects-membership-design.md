@@ -1,6 +1,6 @@
 # Tasky — Projects & Membership (Sub-project 1 of 7)
 
-**Status:** Design approved in chat 2026-08-13. Awaiting Phase 1 (vanilla JS prototype) sign-off before Phase 2 development, per the hard rule in `CLAUDE.md`.
+**Status:** Design approved in chat 2026-08-13. Phase 1 prototype (`design/`) signed off in chat 2026-08-14. Phase 2 (Django/DRF implementation) is unlocked.
 
 ## Context
 
