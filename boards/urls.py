@@ -1,12 +1,19 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import BoardViewSet, CommentViewSet, ComponentViewSet, WorkItemViewSet
+from .views import (
+    BoardViewSet,
+    CommentViewSet,
+    ComponentViewSet,
+    WorkItemLinkViewSet,
+    WorkItemViewSet,
+)
 
 router = DefaultRouter()
 router.register("boards", BoardViewSet, basename="board")
 router.register("work-items", WorkItemViewSet, basename="work-item")
 router.register("comments", CommentViewSet, basename="comment")
+router.register("work-item-links", WorkItemLinkViewSet, basename="work-item-link")
 
 urlpatterns = router.urls + [
     path(

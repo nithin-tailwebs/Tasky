@@ -126,6 +126,27 @@ class Component(models.Model):
         return f"{self.name} ({self.project})"
 
 
+class WorkItemLink(models.Model):
+    """Symmetric — there is no "from"/"to" direction. item_a always holds
+    the lower id, so (A, B) and (B, A) are the same row; enforced by the
+    UniqueConstraint below, not just convention."""
+
+    item_a = models.ForeignKey(WorkItem, on_delete=models.CASCADE, related_name="links_as_a")
+    item_b = models.ForeignKey(WorkItem, on_delete=models.CASCADE, related_name="links_as_b")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="work_item_links_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["item_a", "item_b"], name="unique_work_item_link"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.item_a} <-> {self.item_b}"
+
+
 class Comment(models.Model):
     card = models.ForeignKey(WorkItem, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(

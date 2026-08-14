@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Comment, Component, WorkItem
+from .models import Board, Comment, Component, WorkItem, WorkItemLink
 
 VALID_PARENT_TYPES = {
     WorkItem.ItemType.EPIC: [],
@@ -120,6 +120,21 @@ class WorkItemSerializer(serializers.ModelSerializer):
                 )
 
         return attrs
+
+
+class WorkItemLinkSerializer(serializers.ModelSerializer):
+    item = serializers.PrimaryKeyRelatedField(queryset=WorkItem.objects.all(), write_only=True)
+    item_detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkItemLink
+        fields = ["id", "item", "item_detail", "created_at"]
+
+    def get_item_detail(self, obj):
+        # "the other side" — resolved relative to whichever item this link
+        # is being rendered for, stashed on the instance by the view.
+        other = obj.item_b if obj.item_a_id == self.context["for_item_id"] else obj.item_a
+        return WorkItemSummarySerializer(other).data
 
 
 class MoveWorkItemSerializer(serializers.Serializer):

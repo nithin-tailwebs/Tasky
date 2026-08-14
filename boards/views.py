@@ -1,3 +1,4 @@
+from django.db import models
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
@@ -9,12 +10,13 @@ from rest_framework.response import Response
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Comment, Component, WorkItem
+from .models import Board, Comment, Component, WorkItem, WorkItemLink
 from .serializers import (
     BoardSerializer,
     CommentSerializer,
     ComponentSerializer,
     MoveWorkItemSerializer,
+    WorkItemLinkSerializer,
     WorkItemSerializer,
     WorkItemSummarySerializer,
     can_manage_components,
@@ -159,6 +161,41 @@ class WorkItemViewSet(viewsets.ModelViewSet):
         return Response(WorkItemSummarySerializer(item.children.all(), many=True).data)
 
     @action(detail=True, methods=["get", "post"])
+    def links(self, request, pk=None):
+        item = self.get_object()
+
+        if request.method == "POST":
+            serializer = WorkItemLinkSerializer(data=request.data, context={"for_item_id": item.id})
+            serializer.is_valid(raise_exception=True)
+            other = serializer.validated_data["item"]
+
+            if other.id == item.id:
+                raise ValidationError({"item": "An item can't be linked to itself."})
+            # `other` is already the resolved WorkItem instance — the
+            # PrimaryKeyRelatedField's queryset lookup during is_valid()
+            # already proved it exists, so re-fetching it would be a
+            # redundant query. Membership is the only thing left to check.
+            self.check_object_permissions(request, other)
+
+            if item.parent_id == other.id or other.parent_id == item.id:
+                raise ValidationError({"item": "These items are already parent and child."})
+
+            item_a, item_b = sorted([item, other], key=lambda w: w.id)
+            if WorkItemLink.objects.filter(item_a=item_a, item_b=item_b).exists():
+                raise ValidationError({"item": "These items are already linked."})
+
+            link = WorkItemLink.objects.create(item_a=item_a, item_b=item_b, created_by=request.user)
+            out = WorkItemLinkSerializer(link, context={"for_item_id": item.id})
+            return Response(out.data, status=201)
+
+        thread = WorkItemLink.objects.filter(
+            models.Q(item_a=item) | models.Q(item_b=item)
+        ).select_related("item_a", "item_b")
+        return Response(
+            WorkItemLinkSerializer(thread, many=True, context={"for_item_id": item.id}).data
+        )
+
+    @action(detail=True, methods=["get", "post"])
     def comments(self, request, pk=None):
         item = self.get_object()
 
@@ -190,6 +227,25 @@ class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
         if instance.author_id is not None and instance.author != self.request.user:
             raise PermissionDenied("You can only delete your own comments.")
         instance.delete()
+
+
+class WorkItemLinkViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
+    """Deletion only — links are created through a work item's own /links/ endpoint."""
+
+    serializer_class = WorkItemLinkSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return WorkItemLink.objects.select_related("item_a__board__project", "item_b__board__project")
+
+    def check_object_permissions(self, request, obj):
+        # Either side being in one of my projects is enough — the item that
+        # created the link already proved membership; this just confirms
+        # the caller isn't a total stranger to both.
+        in_a = obj.item_a.project.memberships.filter(user=request.user).exists()
+        in_b = obj.item_b.project.memberships.filter(user=request.user).exists()
+        if not (in_a or in_b):
+            self.permission_denied(request, message="You don't have access to this project.")
 
 
 class ComponentViewSet(viewsets.ModelViewSet):
