@@ -151,6 +151,38 @@ def test_children_endpoint_lists_direct_children_only(auth_client, board, epic):
 
 
 @pytest.mark.django_db
+def test_creating_a_work_item_with_parent_but_no_item_type_defaults_to_task(auth_client, board, epic):
+    """item_type has a model default (Task) and is required=False on the
+    serializer with no serializer-level default, so omitting it drops it
+    from validated_data entirely. validate() must resolve it the same way
+    the model default would before running hierarchy checks."""
+    response = auth_client.post(
+        "/api/work-items/",
+        {"board": board.id, "title": "Untyped child", "parent": epic.id},
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["item_type"] == "task"
+    assert body["parent"] == epic.id
+    assert body["parent_detail"]["key"] == epic.key
+
+
+@pytest.mark.django_db
+def test_creating_a_work_item_with_parent_and_no_item_type_does_not_500(auth_client, board, epic):
+    """Regression for the crash shape: with item_type omitted, validate()
+    used to pass item_type=None straight into hierarchy_error(), which did
+    dict(WorkItem.ItemType.choices)[None] and raised an uncaught KeyError,
+    surfacing as an unhandled 500 instead of a clean 201 or 400."""
+    response = auth_client.post(
+        "/api/work-items/",
+        {"board": board.id, "title": "Another untyped child", "parent": epic.id},
+        content_type="application/json",
+    )
+    assert response.status_code != 500
+
+
+@pytest.mark.django_db
 def test_retrieving_a_nonexistent_work_item_is_404(auth_client):
     """Closes a gap left open in sub-project 1 (Board had this test, Card
     never did) — a genuinely missing id must 404, distinct from the 403 a

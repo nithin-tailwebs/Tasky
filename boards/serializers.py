@@ -97,7 +97,16 @@ class WorkItemSerializer(serializers.ModelSerializer):
         parent_touched = is_create or "parent" in attrs
 
         if parent_touched:
-            item_type = attrs.get("item_type") or (self.instance.item_type if self.instance else None)
+            # item_type mirrors the model default (Task) when omitted on
+            # create, the same way the DB column would fill it in — the
+            # field is required=False with no serializer-level default, so
+            # a create request that leaves it out drops it from attrs
+            # entirely. Falling back to None here (instead of the model
+            # default) would feed hierarchy_error() a type that isn't a
+            # valid dict key and crash with an uncaught KeyError -> 500.
+            item_type = attrs.get("item_type") or (
+                self.instance.item_type if self.instance else WorkItem.ItemType.TASK
+            )
             parent = attrs.get("parent")
             board = attrs.get("board") or (self.instance.board if self.instance else None)
 
