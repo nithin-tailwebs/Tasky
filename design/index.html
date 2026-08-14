@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tasky — Projects &amp; Membership (prototype)</title>
+<title>Tasky — design prototype</title>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -88,9 +88,23 @@
       </div>
     </div>
 
-    <section class="boards-stub">
-      <p class="eyebrow">Boards</p>
-      <p class="stub-note">Boards live inside this project in production, unchanged from today's board experience. This prototype is scoped to Projects &amp; Membership (sub-project 1 of 7) — see the design spec for what's next.</p>
+    <section>
+      <h2 class="section-label">Boards</h2>
+      <form class="create-board" data-create-board novalidate>
+        <input name="name" placeholder="Board name" aria-label="Board name" required>
+        <button class="btn" type="submit">Create board</button>
+      </form>
+      <ul class="board-list" data-boards></ul>
+    </section>
+
+    <section>
+      <h2 class="section-label">Components</h2>
+      <p class="page-sub" style="margin-bottom:10px">Applied to work items in this project. Owner and Admins manage the list.</p>
+      <ul class="component-list" data-components></ul>
+      <form class="create-component" data-create-component novalidate hidden>
+        <input name="name" placeholder="Component name" aria-label="Component name" required>
+        <button class="btn" type="submit">Add</button>
+      </form>
     </section>
 
     <section>
@@ -102,6 +116,19 @@
       <h2 class="section-label">Invitations sent</h2>
       <ul class="invite-list" data-pending-invites></ul>
     </section>
+  </div>
+</template>
+
+<template id="tpl-board">
+  <div class="page">
+    <div class="board-head">
+      <div>
+        <a class="back" data-back-link href="#/projects">Project</a>
+        <h1 data-board-name></h1>
+      </div>
+      <p class="legend" data-type-legend></p>
+    </div>
+    <div class="columns" data-columns></div>
   </div>
 </template>
 

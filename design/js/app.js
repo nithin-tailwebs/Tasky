@@ -101,6 +101,8 @@ function renderShell() {
 function route() {
   if (!me) return;
   const hash = location.hash.replace(/^#/, '') || '/projects';
+  const boardMatch = hash.match(/^\/projects\/(\d+)\/boards\/(\d+)$/);
+  if (boardMatch) return viewBoard(Number(boardMatch[1]), Number(boardMatch[2]));
   const m = hash.match(/^\/projects\/(\d+)$/);
   if (m) return viewProject(Number(m[1]));
   viewProjects();
@@ -235,12 +237,127 @@ async function viewProject(projectId) {
     switcher.addEventListener('change', () => { location.hash = `#/projects/${switcher.value}`; });
 
     renderProjectActions(main, project);
+    await renderBoards(main, projectId);
+    await renderComponents(main, projectId, project.my_role);
     await renderMembers(main, projectId, project.my_role);
     await renderPendingInvites(main, projectId, project.my_role);
   } catch (err) {
     handle(err);
     location.hash = '#/projects';
   }
+}
+
+/* Boards ---------------------------------------------------------------- */
+
+async function renderBoards(main, projectId) {
+  const list = main.querySelector('[data-boards]');
+  list.innerHTML = skeletonList(2);
+
+  main.querySelector('[data-create-board]').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector('[name=name]');
+    if (!input.value.trim()) return;
+    try {
+      const board = await Store.createBoard(projectId, input.value);
+      location.hash = `#/projects/${projectId}/boards/${board.id}`;
+    } catch (err) { handle(err); }
+  });
+
+  try {
+    const boards = await Store.listBoards(projectId);
+    if (!boards.length) {
+      list.innerHTML = '<li class="empty">No boards yet. Name one above to get started.</li>';
+      return;
+    }
+    const rows = boards.map(b => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.className = 'board-row';
+      a.href = `#/projects/${projectId}/boards/${b.id}`;
+      a.innerHTML = `<span class="name">${esc(b.name)}</span>`;
+      li.appendChild(a);
+      return li;
+    });
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+/* Components -------------------------------------------------------------- */
+
+async function renderComponents(main, projectId, myRole) {
+  const list = main.querySelector('[data-components]');
+  const form = main.querySelector('[data-create-component]');
+  const canManage = Logic.canManageComponents(myRole);
+  form.hidden = !canManage;
+  list.innerHTML = skeletonList(1);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector('[name=name]');
+    if (!input.value.trim()) return;
+    try {
+      await Store.createComponent(projectId, input.value);
+      input.value = '';
+      await renderComponents(main, projectId, myRole);
+    } catch (err) { handle(err); }
+  });
+
+  try {
+    const items = await Store.listComponents(projectId);
+    if (!items.length) {
+      list.innerHTML = '<li class="empty">No components yet.</li>';
+      return;
+    }
+    const rows = items.map(c => componentRow(c, projectId, myRole));
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+function componentRow(component, projectId, myRole) {
+  const li = document.createElement('li');
+  li.className = 'component-row';
+  const canManage = Logic.canManageComponents(myRole);
+  li.innerHTML =
+    `<span class="who" ${canManage ? 'contenteditable="true" data-rename' : ''}>${esc(component.name)}</span>` +
+    (canManage ? `<span class="actions"><button class="btn btn-danger" data-remove>Delete</button></span>` : '');
+
+  const nameEl = li.querySelector('[data-rename]');
+  if (nameEl) {
+    nameEl.addEventListener('blur', async () => {
+      const value = nameEl.textContent.trim();
+      if (!value || value === component.name) { nameEl.textContent = component.name; return; }
+      try {
+        await Store.renameComponent(component.id, value);
+        component.name = value;
+        toast('Component renamed');
+      } catch (err) {
+        nameEl.textContent = component.name;
+        handle(err);
+      }
+    });
+    nameEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+    });
+  }
+  const removeBtn = li.querySelector('[data-remove]');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async () => {
+      try {
+        await Store.deleteComponent(component.id);
+        toast('Component deleted');
+        await renderComponents(outlet(), projectId, myRole);
+      } catch (err) { handle(err); }
+    });
+  }
+  return li;
 }
 
 function renderProjectActions(main, project) {
@@ -371,9 +488,11 @@ async function renderPendingInvites(main, projectId, myRole) {
 }
 
 /* Modals — a shared open/close lifecycle so every dialog animates the
-   same way and Escape/backdrop-click always work the same way. -------- */
+   same way and Escape/backdrop-click always work the same way. Modals can
+   nest (the work item modal opens a link picker on top of itself), so
+   Escape only ever closes the topmost one. -------------------------- */
 
-let closeActiveModal = null;
+const modalStack = [];
 
 function openModal(bodyHtml) {
   const scrim = document.createElement('div');
@@ -393,15 +512,18 @@ function openModal(bodyHtml) {
     scrim.classList.remove('is-open');
     document.removeEventListener('keydown', onKey);
     setTimeout(() => scrim.remove(), 180);
-    closeActiveModal = null;
+    const idx = modalStack.indexOf(close);
+    if (idx !== -1) modalStack.splice(idx, 1);
   }
-  function onKey(e) { if (e.key === 'Escape') close(); }
+  function onKey(e) {
+    if (e.key === 'Escape' && modalStack[modalStack.length - 1] === close) close();
+  }
 
   scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
   document.addEventListener('keydown', onKey);
   modal.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', close));
 
-  closeActiveModal = close;
+  modalStack.push(close);
   return { modal, close };
 }
 
@@ -467,6 +589,397 @@ async function openTransferModal(project) {
       close();
       toast('Ownership transferred');
       viewProject(project.id);
+    } catch (err) {
+      errorEl.textContent = errorText(err);
+      errorEl.hidden = false;
+    }
+  });
+}
+
+/* Board — work items (sub-project 2a) ------------------------------------ */
+
+let boardState = { projectId: null, boardId: null, buckets: null };
+
+function groupByStatus(items) {
+  const buckets = {};
+  Logic.STATUSES.forEach(s => { buckets[s] = []; });
+  items.forEach(item => { (buckets[item.status] || (buckets[item.status] = [])).push(item); });
+  return buckets;
+}
+
+async function viewBoard(projectId, boardId) {
+  const main = outlet();
+  main.replaceChildren(tpl('tpl-board'));
+  boardState.projectId = projectId;
+  boardState.boardId = boardId;
+
+  main.querySelector('[data-back-link]').href = `#/projects/${projectId}`;
+  main.querySelector('[data-type-legend]').innerHTML = Logic.ITEM_TYPES.map(t =>
+    `<span class="legend-item"><i class="type-dot type-${t}"></i>${Logic.ITEM_TYPE_LABEL[t]}</span>`
+  ).join('');
+
+  const columnsEl = main.querySelector('[data-columns]');
+  columnsEl.innerHTML = '<p class="loading">Loading board…</p>';
+
+  try {
+    const [board, items] = await Promise.all([
+      Store.getBoard(boardId),
+      Store.listBoardWorkItems(boardId),
+    ]);
+    main.querySelector('[data-board-name]').textContent = board.name;
+
+    boardState.buckets = groupByStatus(items);
+    paintColumns();
+  } catch (err) {
+    columnsEl.innerHTML = '';
+    handle(err);
+    location.hash = `#/projects/${projectId}`;
+  }
+}
+
+async function reloadBoard() {
+  const items = await Store.listBoardWorkItems(boardState.boardId);
+  boardState.buckets = groupByStatus(items);
+  paintColumns();
+}
+
+function paintColumns() {
+  const columnsEl = root.querySelector('[data-columns]');
+  if (!columnsEl) return;
+  columnsEl.replaceChildren(...Logic.STATUSES.map(s => columnEl(s, boardState.buckets[s] || [])));
+}
+
+function columnEl(status, items) {
+  const col = document.createElement('section');
+  col.className = 'column';
+  if (status === 'in_progress') col.classList.add('column-active');
+  if (status === 'done') col.classList.add('column-done');
+
+  const head = document.createElement('div');
+  head.className = 'column-head';
+  head.innerHTML =
+    `<span class="dot"></span>` +
+    `<span class="label">${Logic.STATUS_LABELS[status]}</span>` +
+    `<span class="count">${items.length}</span>`;
+  col.appendChild(head);
+
+  const stack = document.createElement('div');
+  stack.className = 'stack';
+  items.forEach(item => stack.appendChild(workItemCard(item)));
+  col.appendChild(stack);
+
+  col.appendChild(addWorkItemControl(status));
+  return col;
+}
+
+function workItemCard(item) {
+  const el = document.createElement('article');
+  el.className = `wi-card p${item.priority || 2}`;
+  el.tabIndex = 0;
+
+  const parentChip = item.parent_detail
+    ? `<span class="parent-chip">${esc(item.parent_detail.key)}</span>` : '';
+  const who = item.assignee_detail
+    ? `<span class="who-chip">${esc(item.assignee_detail.display_name)}</span>` : '';
+
+  el.innerHTML =
+    `<div class="wi-top">` +
+      `<span class="key-pill">${esc(item.key)}</span>` +
+      `<span class="type-badge type-${item.item_type}">${Logic.ITEM_TYPE_LABEL[item.item_type]}</span>` +
+    `</div>` +
+    `<p class="card-title">${esc(item.title)}</p>` +
+    `<div class="card-meta">${parentChip}${who}</div>`;
+
+  el.addEventListener('click', () => openWorkItemModal(item.id));
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openWorkItemModal(item.id); }
+  });
+  return el;
+}
+
+function addWorkItemControl(status) {
+  const wrap = document.createElement('div');
+  const btn = document.createElement('button');
+  btn.className = 'add-card';
+  btn.type = 'button';
+  btn.textContent = '+ Add work item';
+  wrap.appendChild(btn);
+
+  btn.addEventListener('click', () => {
+    const form = document.createElement('form');
+    form.className = 'add-wi-form';
+    form.innerHTML =
+      `<select name="item_type" aria-label="Type">${
+        Logic.ITEM_TYPES.map(t => `<option value="${t}">${Logic.ITEM_TYPE_LABEL[t]}</option>`).join('')
+      }</select>` +
+      `<input name="title" placeholder="What needs doing?" aria-label="Title">` +
+      `<select name="parent" aria-label="Parent"><option value="">No parent</option></select>` +
+      `<p class="form-error" data-error hidden></p>`;
+    wrap.replaceChildren(form);
+
+    const typeSelect = form.querySelector('[name=item_type]');
+    const parentSelect = form.querySelector('[name=parent]');
+    const titleInput = form.querySelector('[name=title]');
+    titleInput.focus();
+
+    function refreshParentOptions() {
+      const type = typeSelect.value;
+      parentSelect.innerHTML = '<option value="">No parent</option>';
+      if (!Logic.canHaveParent(type)) { parentSelect.disabled = true; return; }
+      parentSelect.disabled = false;
+      const items = boardState.buckets ? Object.values(boardState.buckets).flat() : [];
+      const candidates = items.filter(i => Logic.VALID_PARENT_TYPES[type].includes(i.item_type));
+      candidates.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.key} — ${c.title}`;
+        parentSelect.appendChild(opt);
+      });
+      if (Logic.requiresParent(type) && candidates.length) parentSelect.value = candidates[0].id;
+    }
+    typeSelect.addEventListener('change', refreshParentOptions);
+    refreshParentOptions();
+
+    const cancel = () => { if (!titleInput.value.trim()) wrap.replaceChildren(btn); };
+    titleInput.addEventListener('blur', () => setTimeout(cancel, 150));
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!titleInput.value.trim()) return;
+      const errorEl = form.querySelector('[data-error]');
+      errorEl.hidden = true;
+      try {
+        await Store.createWorkItem({
+          board: boardState.boardId, item_type: typeSelect.value, title: titleInput.value,
+          parent: parentSelect.value || null, status,
+        });
+        await reloadBoard();
+      } catch (err) {
+        errorEl.textContent = errorText(err);
+        errorEl.hidden = false;
+      }
+    });
+  });
+
+  return wrap;
+}
+
+/* Work item detail modal -------------------------------------------------- */
+
+async function openWorkItemModal(itemId) {
+  let item, users, projectComponents, boardItems;
+  try {
+    [item, users, projectComponents, boardItems] = await Promise.all([
+      Store.getWorkItem(itemId),
+      Store.listUsers(),
+      Store.listComponents(boardState.projectId),
+      Store.listBoardWorkItems(boardState.boardId),
+    ]);
+  } catch (err) { return handle(err); }
+
+  const assigneeOptions = users.map(u =>
+    `<option value="${u.id}" ${item.assignee === u.id ? 'selected' : ''}>${esc(u.display_name)}</option>`
+  ).join('');
+
+  const componentChips = projectComponents.map(c => {
+    const checked = item.component_ids.includes(c.id);
+    return `<label class="chip-check ${checked ? 'is-checked' : ''}">` +
+      `<input type="checkbox" value="${c.id}" ${checked ? 'checked' : ''}>${esc(c.name)}</label>`;
+  }).join('');
+
+  const childrenHtml = item.children.length
+    ? `<ul class="children-list">${item.children.map(c =>
+        `<li><a href="#" data-open-item="${c.id}"><span class="key-pill">${esc(c.key)}</span> ${esc(c.title)}</a>` +
+        `<span class="status-tag">${Logic.STATUS_LABELS[c.status]}</span></li>`
+      ).join('')}</ul>`
+    : `<p class="empty-inline">No children yet.</p>`;
+
+  const showParentField = Logic.canHaveParent(item.item_type);
+  const parentOptions = showParentField
+    ? boardItems
+        .filter(i => i.id !== item.id && Logic.VALID_PARENT_TYPES[item.item_type].includes(i.item_type))
+        .map(i => `<option value="${i.id}" ${item.parent === i.id ? 'selected' : ''}>${esc(i.key)} — ${esc(i.title)}</option>`)
+        .join('')
+    : '';
+
+  const body = `
+    <div class="modal-head">
+      <p class="eyebrow">${esc(item.key)} · <span class="type-badge type-${item.item_type}">${Logic.ITEM_TYPE_LABEL[item.item_type]}</span></p>
+      <button class="btn btn-quiet" data-close>Close</button>
+    </div>
+    <input class="modal-title" name="title" value="${esc(item.title)}" aria-label="Title">
+    <label class="field">
+      <span>Description</span>
+      <textarea name="description" placeholder="What does done look like?">${esc(item.description)}</textarea>
+    </label>
+    <div class="grid-3">
+      <label class="field">
+        <span>Status</span>
+        <select name="status">${Logic.STATUSES.map(s =>
+          `<option value="${s}" ${item.status === s ? 'selected' : ''}>${Logic.STATUS_LABELS[s]}</option>`).join('')}</select>
+      </label>
+      <label class="field">
+        <span>Priority</span>
+        <select name="priority">
+          <option value="1" ${item.priority === 1 ? 'selected' : ''}>Low</option>
+          <option value="2" ${item.priority === 2 ? 'selected' : ''}>Medium</option>
+          <option value="3" ${item.priority === 3 ? 'selected' : ''}>High</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Assignee</span>
+        <select name="assignee"><option value="">Unassigned</option>${assigneeOptions}</select>
+      </label>
+    </div>
+    <div class="grid-2">
+      <label class="field">
+        <span>Due</span>
+        <input type="date" name="due_date" value="${item.due_date || ''}">
+      </label>
+      ${showParentField ? `
+      <label class="field">
+        <span>Parent ${Logic.requiresParent(item.item_type) ? '(required)' : ''}</span>
+        <select name="parent"><option value="">No parent</option>${parentOptions}</select>
+      </label>` : '<div></div>'}
+    </div>
+    <p class="form-error" data-error hidden></p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-save>Save changes</button>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn btn-danger" data-delete>Delete</button>
+    </div>
+
+    <div class="components-block">
+      <h2>Components</h2>
+      <div class="chip-check-list">${componentChips || '<p class="empty-inline">No components on this project yet.</p>'}</div>
+    </div>
+
+    <div class="children-block">
+      <h2>Children</h2>
+      ${childrenHtml}
+    </div>
+
+    <div class="links-block">
+      <h2>Related items</h2>
+      <ul class="link-list" data-links><li class="loading">Loading…</li></ul>
+      <button class="btn" type="button" data-add-link>+ Link an item</button>
+    </div>`;
+
+  const { modal, close } = openModal(body);
+  const errorEl = modal.querySelector('[data-error]');
+
+  modal.querySelectorAll('.chip-check').forEach(chip => {
+    const input = chip.querySelector('input');
+    input.addEventListener('change', () => chip.classList.toggle('is-checked', input.checked));
+  });
+
+  modal.querySelectorAll('[data-open-item]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const childId = Number(a.dataset.openItem);
+      close();
+      openWorkItemModal(childId);
+    });
+  });
+
+  modal.querySelector('[data-save]').addEventListener('click', async () => {
+    errorEl.hidden = true;
+    const componentIds = Array.from(modal.querySelectorAll('.chip-check input:checked')).map(i => Number(i.value));
+    const parentSelect = modal.querySelector('[name=parent]');
+    const fields = {
+      title: modal.querySelector('[name=title]').value,
+      description: modal.querySelector('[name=description]').value,
+      status: modal.querySelector('[name=status]').value,
+      priority: Number(modal.querySelector('[name=priority]').value),
+      due_date: modal.querySelector('[name=due_date]').value || null,
+      assignee: modal.querySelector('[name=assignee]').value || null,
+      component_ids: componentIds,
+    };
+    if (parentSelect) fields.parent = parentSelect.value || null;
+    try {
+      await Store.updateWorkItem(item.id, fields);
+      close();
+      await reloadBoard();
+      toast('Saved');
+    } catch (err) {
+      errorEl.textContent = errorText(err);
+      errorEl.hidden = false;
+    }
+  });
+
+  modal.querySelector('[data-delete]').addEventListener('click', async () => {
+    try {
+      await Store.deleteWorkItem(item.id);
+      close();
+      await reloadBoard();
+      toast('Deleted — any children were kept, just unlinked from it');
+    } catch (err) { handle(err); }
+  });
+
+  loadLinks(item, modal);
+  modal.querySelector('[data-add-link]').addEventListener('click', () => openLinkModal(item, modal));
+}
+
+async function loadLinks(item, modal) {
+  const list = modal.querySelector('[data-links]');
+  try {
+    const links = await Store.listLinks(item.id);
+    if (!links.length) {
+      list.innerHTML = '<li class="empty-inline">No related items yet.</li>';
+      return;
+    }
+    const rows = links.map(link => {
+      const other = link.item_a === item.id ? link.item_b_detail : link.item_a_detail;
+      const li = document.createElement('li');
+      li.className = 'link-row';
+      li.innerHTML =
+        `<span class="key-pill">${esc(other.key)}</span>` +
+        `<span class="link-title">${esc(other.title)}</span>` +
+        `<button class="btn btn-danger" data-unlink>Remove</button>`;
+      li.querySelector('[data-unlink]').addEventListener('click', async () => {
+        try {
+          await Store.deleteLink(link.id);
+          loadLinks(item, modal);
+        } catch (err) { handle(err); }
+      });
+      return li;
+    });
+    list.replaceChildren(...rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+async function openLinkModal(item, parentModal) {
+  let candidates;
+  try {
+    const boardItems = await Store.listBoardWorkItems(item.board);
+    candidates = boardItems.filter(i => i.id !== item.id);
+  } catch (err) { return handle(err); }
+
+  const body = !candidates.length
+    ? `<div class="modal-head"><p class="eyebrow">Link ${esc(item.key)}</p><button class="btn btn-quiet" data-close>Close</button></div>
+       <p class="empty">No other items on this board to link to yet.</p>`
+    : `<div class="modal-head"><p class="eyebrow">Link ${esc(item.key)}</p><button class="btn btn-quiet" data-close>Close</button></div>
+       <label class="field"><span>Item</span><select name="target">${
+         candidates.map(c => `<option value="${c.id}">${esc(c.key)} — ${esc(c.title)}</option>`).join('')
+       }</select></label>
+       <p class="form-error" data-error hidden></p>
+       <div class="modal-actions"><button class="btn btn-primary" data-send>Link</button><button class="btn" data-close>Cancel</button></div>`;
+
+  const { modal, close } = openModal(body);
+  const sendBtn = modal.querySelector('[data-send]');
+  if (!sendBtn) return;
+
+  sendBtn.addEventListener('click', async () => {
+    const errorEl = modal.querySelector('[data-error]');
+    const targetId = modal.querySelector('[name=target]').value;
+    try {
+      await Store.createLink(item.id, Number(targetId));
+      close();
+      toast('Linked');
+      loadLinks(item, parentModal);
     } catch (err) {
       errorEl.textContent = errorText(err);
       errorEl.hidden = false;
