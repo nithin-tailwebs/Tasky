@@ -3,15 +3,15 @@ from rest_framework.generics import ListAPIView
 
 from projects.models import ProjectMembership
 
-from .models import Card
-from .serializers import CardSerializer
+from .models import WorkItem
+from .serializers import WorkItemSerializer
 
 
 class MyTasksView(ListAPIView):
     """Everything assigned to me, in a project I still belong to, that is
     still open, soonest deadline first."""
 
-    serializer_class = CardSerializer
+    serializer_class = WorkItemSerializer
     pagination_class = None
 
     def get_queryset(self):
@@ -19,8 +19,8 @@ class MyTasksView(ListAPIView):
             user=self.request.user
         ).values_list("project_id", flat=True)
         return (
-            Card.objects.filter(assignee=self.request.user, board__project_id__in=member_project_ids)
-            .exclude(status=Card.Status.DONE)
+            WorkItem.objects.filter(assignee=self.request.user, board__project_id__in=member_project_ids)
+            .exclude(status=WorkItem.Status.DONE)
             .select_related("board", "assignee", "created_by")
             .order_by(F("due_date").asc(nulls_last=True), "-priority", "id")
         )

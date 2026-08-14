@@ -1,6 +1,6 @@
 import pytest
 
-from boards.models import Board, Card, Comment
+from boards.models import Board, Comment, WorkItem
 
 
 @pytest.fixture
@@ -9,72 +9,72 @@ def board(user, project):
 
 
 @pytest.fixture
-def card(board):
-    return Card.objects.create(board=board, title="Discuss me")
+def work_item(board):
+    return WorkItem.objects.create(board=board, title="Discuss me")
 
 
 @pytest.mark.django_db
-def test_anonymous_callers_are_rejected(client, card):
-    assert client.get(f"/api/cards/{card.id}/comments/").status_code == 403
+def test_anonymous_callers_are_rejected(client, work_item):
+    assert client.get(f"/api/work-items/{work_item.id}/comments/").status_code == 403
 
 
 @pytest.mark.django_db
-def test_posting_a_comment_records_the_author(auth_client, card, user):
+def test_posting_a_comment_records_the_author(auth_client, work_item, user):
     response = auth_client.post(
-        f"/api/cards/{card.id}/comments/",
+        f"/api/work-items/{work_item.id}/comments/",
         {"body": "Started on this"},
         content_type="application/json",
     )
 
     assert response.status_code == 201
     assert response.json()["author"]["username"] == "alice"
-    assert Comment.objects.get(card=card).author == user
+    assert Comment.objects.get(card=work_item).author == user
 
 
 @pytest.mark.django_db
-def test_comments_come_back_oldest_first(auth_client, card, user):
-    Comment.objects.create(card=card, author=user, body="First")
-    Comment.objects.create(card=card, author=user, body="Second")
+def test_comments_come_back_oldest_first(auth_client, work_item, user):
+    Comment.objects.create(card=work_item, author=user, body="First")
+    Comment.objects.create(card=work_item, author=user, body="Second")
 
-    response = auth_client.get(f"/api/cards/{card.id}/comments/")
+    response = auth_client.get(f"/api/work-items/{work_item.id}/comments/")
 
     assert [comment["body"] for comment in response.json()] == ["First", "Second"]
 
 
 @pytest.mark.django_db
-def test_comments_are_scoped_to_their_card(auth_client, board, card, user):
-    other_card = Card.objects.create(board=board, title="Elsewhere")
-    Comment.objects.create(card=card, author=user, body="Mine")
-    Comment.objects.create(card=other_card, author=user, body="Not mine")
+def test_comments_are_scoped_to_their_work_item(auth_client, board, work_item, user):
+    other_item = WorkItem.objects.create(board=board, title="Elsewhere")
+    Comment.objects.create(card=work_item, author=user, body="Mine")
+    Comment.objects.create(card=other_item, author=user, body="Not mine")
 
-    response = auth_client.get(f"/api/cards/{card.id}/comments/")
+    response = auth_client.get(f"/api/work-items/{work_item.id}/comments/")
 
     assert [comment["body"] for comment in response.json()] == ["Mine"]
 
 
 @pytest.mark.django_db
-def test_an_author_can_delete_their_own_comment(auth_client, card, user):
-    comment = Comment.objects.create(card=card, author=user, body="Mine to delete")
+def test_an_author_can_delete_their_own_comment(auth_client, work_item, user):
+    comment = Comment.objects.create(card=work_item, author=user, body="Mine to delete")
 
     assert auth_client.delete(f"/api/comments/{comment.id}/").status_code == 204
     assert not Comment.objects.filter(id=comment.id).exists()
 
 
 @pytest.mark.django_db
-def test_nobody_can_delete_someone_elses_comment(auth_client, card, other_user):
-    comment = Comment.objects.create(card=card, author=other_user, body="Not yours")
+def test_nobody_can_delete_someone_elses_comment(auth_client, work_item, other_user):
+    comment = Comment.objects.create(card=work_item, author=other_user, body="Not yours")
 
     assert auth_client.delete(f"/api/comments/{comment.id}/").status_code == 403
     assert Comment.objects.filter(id=comment.id).exists()
 
 
 @pytest.mark.django_db
-def test_an_authorless_comment_can_be_deleted_by_anyone_signed_in(auth_client, card, other_user):
+def test_an_authorless_comment_can_be_deleted_by_anyone_signed_in(auth_client, work_item, other_user):
     """author is SET_NULL when the author's account is deleted. Ownership
     must only be enforced when there IS an owner, or the comment becomes
     permanently undeletable — everyone fails `author != request.user` when
     author is None."""
-    comment = Comment.objects.create(card=card, author=other_user, body="Orphaned")
+    comment = Comment.objects.create(card=work_item, author=other_user, body="Orphaned")
     other_user.delete()
     comment.refresh_from_db()
     assert comment.author_id is None
@@ -84,9 +84,9 @@ def test_an_authorless_comment_can_be_deleted_by_anyone_signed_in(auth_client, c
 
 
 @pytest.mark.django_db
-def test_an_empty_comment_is_rejected(auth_client, card):
+def test_an_empty_comment_is_rejected(auth_client, work_item):
     response = auth_client.post(
-        f"/api/cards/{card.id}/comments/",
+        f"/api/work-items/{work_item.id}/comments/",
         {"body": "   "},
         content_type="application/json",
     )
@@ -94,7 +94,7 @@ def test_an_empty_comment_is_rejected(auth_client, card):
 
 
 @pytest.mark.django_db
-def test_deleting_a_card_deletes_its_comments(auth_client, card, user):
-    Comment.objects.create(card=card, author=user, body="Goes with the card")
-    card.delete()
+def test_deleting_a_work_item_deletes_its_comments(auth_client, work_item, user):
+    Comment.objects.create(card=work_item, author=user, body="Goes with the item")
+    work_item.delete()
     assert Comment.objects.count() == 0

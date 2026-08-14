@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Card, Comment
+from .models import Board, Comment, WorkItem
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -19,13 +19,13 @@ class BoardSerializer(serializers.ModelSerializer):
         return value
 
 
-class CardSerializer(serializers.ModelSerializer):
+class WorkItemSerializer(serializers.ModelSerializer):
     assignee_detail = UserSerializer(source="assignee", read_only=True)
     created_by = UserSerializer(read_only=True)
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
 
     class Meta:
-        model = Card
+        model = WorkItem
         fields = [
             "id", "board", "title", "description",
             "status", "priority", "priority_label", "due_date",
@@ -41,8 +41,8 @@ class CardSerializer(serializers.ModelSerializer):
         return value
 
 
-class MoveCardSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=Card.Status.choices)
+class MoveWorkItemSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=WorkItem.Status.choices)
     position = serializers.IntegerField(min_value=0)
 
 

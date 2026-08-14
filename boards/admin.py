@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Board, Card, Comment
+from .models import Board, Comment, WorkItem
 
 
 @admin.register(Board)
@@ -9,8 +9,8 @@ class BoardAdmin(admin.ModelAdmin):
     search_fields = ["name"]
 
 
-@admin.register(Card)
-class CardAdmin(admin.ModelAdmin):
+@admin.register(WorkItem)
+class WorkItemAdmin(admin.ModelAdmin):
     list_display = ["title", "board", "status", "priority", "assignee", "due_date"]
     list_filter = ["status", "priority", "board"]
     search_fields = ["title", "description"]

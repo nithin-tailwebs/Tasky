@@ -1,8 +1,8 @@
 import pytest
 
-from boards.models import Board, Card
-from boards.services import move_card
-from boards.views import CardViewSet
+from boards.models import Board, WorkItem
+from boards.services import move_work_item
+from boards.views import WorkItemViewSet
 
 
 @pytest.fixture
@@ -11,29 +11,29 @@ def board(user, project):
 
 
 @pytest.fixture
-def todo_cards(board):
+def todo_items(board):
     return [
-        Card.objects.create(board=board, title=title, status="todo", position=index)
+        WorkItem.objects.create(board=board, title=title, status="todo", position=index)
         for index, title in enumerate(["A", "B", "C"])
     ]
 
 
 def titles_in(board, status):
     return [
-        card.title
-        for card in Card.objects.filter(board=board, status=status).order_by(
+        item.title
+        for item in WorkItem.objects.filter(board=board, status=status).order_by(
             "position", "id"
         )
     ]
 
 
 @pytest.mark.django_db
-def test_moving_a_card_up_within_its_column(auth_client, board, todo_cards):
-    card_c = todo_cards[2]
-    original_updated_at = card_c.updated_at
+def test_moving_a_work_item_up_within_its_column(auth_client, board, todo_items):
+    item_c = todo_items[2]
+    original_updated_at = item_c.updated_at
 
     response = auth_client.post(
-        f"/api/cards/{card_c.id}/move/",
+        f"/api/work-items/{item_c.id}/move/",
         {"status": "todo", "position": 0},
         content_type="application/json",
     )
@@ -41,16 +41,16 @@ def test_moving_a_card_up_within_its_column(auth_client, board, todo_cards):
     assert response.status_code == 200
     assert titles_in(board, "todo") == ["C", "A", "B"]
 
-    card_c.refresh_from_db()
-    assert card_c.updated_at > original_updated_at
+    item_c.refresh_from_db()
+    assert item_c.updated_at > original_updated_at
 
 
 @pytest.mark.django_db
-def test_moving_a_card_down_within_its_column(auth_client, board, todo_cards):
-    card_a = todo_cards[0]
+def test_moving_a_work_item_down_within_its_column(auth_client, board, todo_items):
+    item_a = todo_items[0]
 
     auth_client.post(
-        f"/api/cards/{card_a.id}/move/",
+        f"/api/work-items/{item_a.id}/move/",
         {"status": "todo", "position": 2},
         content_type="application/json",
     )
@@ -59,11 +59,11 @@ def test_moving_a_card_down_within_its_column(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_moving_a_card_to_another_column(auth_client, board, todo_cards):
-    card_b = todo_cards[1]
+def test_moving_a_work_item_to_another_column(auth_client, board, todo_items):
+    item_b = todo_items[1]
 
     response = auth_client.post(
-        f"/api/cards/{card_b.id}/move/",
+        f"/api/work-items/{item_b.id}/move/",
         {"status": "in_progress", "position": 0},
         content_type="application/json",
     )
@@ -73,29 +73,29 @@ def test_moving_a_card_to_another_column(auth_client, board, todo_cards):
     assert titles_in(board, "todo") == ["A", "C"]
     assert titles_in(board, "in_progress") == ["B"]
 
-    card_b.refresh_from_db()
-    assert card_b.position == 0
+    item_b.refresh_from_db()
+    assert item_b.position == 0
 
 
 @pytest.mark.django_db
-def test_the_source_column_closes_its_gap(auth_client, board, todo_cards):
+def test_the_source_column_closes_its_gap(auth_client, board, todo_items):
     auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "done", "position": 0},
         content_type="application/json",
     )
 
-    remaining = Card.objects.filter(board=board, status="todo").order_by("position")
-    assert [card.position for card in remaining] == [0, 1]
+    remaining = WorkItem.objects.filter(board=board, status="todo").order_by("position")
+    assert [item.position for item in remaining] == [0, 1]
 
 
 @pytest.mark.django_db
-def test_dropping_into_the_middle_of_a_populated_column(auth_client, board, todo_cards):
-    Card.objects.create(board=board, title="X", status="done", position=0)
-    Card.objects.create(board=board, title="Y", status="done", position=1)
+def test_dropping_into_the_middle_of_a_populated_column(auth_client, board, todo_items):
+    WorkItem.objects.create(board=board, title="X", status="done", position=0)
+    WorkItem.objects.create(board=board, title="Y", status="done", position=1)
 
     auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "done", "position": 1},
         content_type="application/json",
     )
@@ -104,9 +104,9 @@ def test_dropping_into_the_middle_of_a_populated_column(auth_client, board, todo
 
 
 @pytest.mark.django_db
-def test_an_oversized_position_lands_at_the_end(auth_client, board, todo_cards):
+def test_an_oversized_position_lands_at_the_end(auth_client, board, todo_items):
     auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "todo", "position": 999},
         content_type="application/json",
     )
@@ -115,15 +115,15 @@ def test_an_oversized_position_lands_at_the_end(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_positions_stay_contiguous_from_zero(auth_client, board, todo_cards):
+def test_positions_stay_contiguous_from_zero(auth_client, board, todo_items):
     auth_client.post(
-        f"/api/cards/{todo_cards[1].id}/move/",
+        f"/api/work-items/{todo_items[1].id}/move/",
         {"status": "todo", "position": 0},
         content_type="application/json",
     )
 
     positions = list(
-        Card.objects.filter(board=board, status="todo")
+        WorkItem.objects.filter(board=board, status="todo")
         .order_by("position")
         .values_list("position", flat=True)
     )
@@ -131,14 +131,14 @@ def test_positions_stay_contiguous_from_zero(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_a_move_never_touches_another_board(auth_client, board, todo_cards, user, project):
+def test_a_move_never_touches_another_board(auth_client, board, todo_items, user, project):
     other_board = Board.objects.create(name="Elsewhere", created_by=user, project=project)
-    untouched = Card.objects.create(
+    untouched = WorkItem.objects.create(
         board=other_board, title="Untouched", status="todo", position=7
     )
 
     auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "todo", "position": 2},
         content_type="application/json",
     )
@@ -148,9 +148,9 @@ def test_a_move_never_touches_another_board(auth_client, board, todo_cards, user
 
 
 @pytest.mark.django_db
-def test_an_unknown_status_is_rejected(auth_client, board, todo_cards):
+def test_an_unknown_status_is_rejected(auth_client, board, todo_items):
     response = auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "archived", "position": 0},
         content_type="application/json",
     )
@@ -159,7 +159,7 @@ def test_an_unknown_status_is_rejected(auth_client, board, todo_cards):
     # A 400 must mean nothing was written, not just that the response looks
     # right — check the rows directly rather than trusting the status code alone.
     unchanged = list(
-        Card.objects.filter(board=board, status="todo")
+        WorkItem.objects.filter(board=board, status="todo")
         .order_by("position")
         .values_list("title", "position")
     )
@@ -167,16 +167,16 @@ def test_an_unknown_status_is_rejected(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_a_negative_position_is_rejected(auth_client, board, todo_cards):
+def test_a_negative_position_is_rejected(auth_client, board, todo_items):
     response = auth_client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "todo", "position": -1},
         content_type="application/json",
     )
     assert response.status_code == 400
 
     unchanged = list(
-        Card.objects.filter(board=board, status="todo")
+        WorkItem.objects.filter(board=board, status="todo")
         .order_by("position")
         .values_list("title", "position")
     )
@@ -184,61 +184,62 @@ def test_a_negative_position_is_rejected(auth_client, board, todo_cards):
 
 
 @pytest.mark.django_db
-def test_anonymous_callers_are_rejected(client, board, todo_cards):
+def test_anonymous_callers_are_rejected(client, board, todo_items):
     response = client.post(
-        f"/api/cards/{todo_cards[0].id}/move/",
+        f"/api/work-items/{todo_items[0].id}/move/",
         {"status": "done", "position": 0},
         content_type="application/json",
     )
     assert response.status_code == 403
 
     unchanged = list(
-        Card.objects.filter(board=board, status="todo")
+        WorkItem.objects.filter(board=board, status="todo")
         .order_by("position")
         .values_list("title", "position")
     )
     assert unchanged == [("A", 0), ("B", 1), ("C", 2)]
-    assert not Card.objects.filter(board=board, status="done").exists()
+    assert not WorkItem.objects.filter(board=board, status="done").exists()
 
 
 @pytest.mark.django_db
-def test_move_card_raises_when_the_row_was_deleted_after_it_was_fetched(
-    board, todo_cards
+def test_move_work_item_raises_when_the_row_was_deleted_after_it_was_fetched(
+    board, todo_items
 ):
     """Direct service-level test of the Finding-1 race: the view's get_object()
-    is unlocked, so by the time move_card() takes its row lock, another request
-    may already have deleted the card. old_status must never be trusted from the
-    stale in-memory instance, and the vanished row must not be reinserted as a
-    ghost that shifts every real card in the destination column."""
-    card = todo_cards[0]
-    Card.objects.filter(pk=card.pk).delete()
+    is unlocked, so by the time move_work_item() takes its row lock, another
+    request may already have deleted the item. old_status must never be
+    trusted from the stale in-memory instance, and the vanished row must not
+    be reinserted as a ghost that shifts every real item in the destination
+    column."""
+    item = todo_items[0]
+    WorkItem.objects.filter(pk=item.pk).delete()
 
-    with pytest.raises(Card.DoesNotExist):
-        move_card(card, "done", 0)
+    with pytest.raises(WorkItem.DoesNotExist):
+        move_work_item(item, "done", 0)
 
 
 @pytest.mark.django_db
-def test_moving_a_card_deleted_after_it_was_fetched_returns_404(
-    auth_client, board, todo_cards, monkeypatch
+def test_moving_a_work_item_deleted_after_it_was_fetched_returns_404(
+    auth_client, board, todo_items, monkeypatch
 ):
     """Same race, exercised through the HTTP endpoint. get_object() is patched
-    to return a stale Card instance for a row that has since been deleted —
-    standing in for a second request winning the race between this request's
-    get_object() and its row lock. The endpoint must surface this as 404 (not
-    500), and it must not touch any other card on the board."""
-    card = todo_cards[0]
-    Card.objects.filter(pk=card.pk).delete()
-    monkeypatch.setattr(CardViewSet, "get_object", lambda self: card)
+    to return a stale WorkItem instance for a row that has since been
+    deleted — standing in for a second request winning the race between this
+    request's get_object() and its row lock. The endpoint must surface this
+    as 404 (not 500), and it must not touch any other item on the board."""
+    item = todo_items[0]
+    WorkItem.objects.filter(pk=item.pk).delete()
+    monkeypatch.setattr(WorkItemViewSet, "get_object", lambda self: item)
 
     response = auth_client.post(
-        f"/api/cards/{card.id}/move/",
+        f"/api/work-items/{item.id}/move/",
         {"status": "done", "position": 0},
         content_type="application/json",
     )
 
     assert response.status_code == 404
     remaining = list(
-        Card.objects.filter(board=board, status="todo")
+        WorkItem.objects.filter(board=board, status="todo")
         .order_by("position")
         .values_list("title", "position")
     )

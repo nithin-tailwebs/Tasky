@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from boards.models import Board, Card
+from boards.models import Board, WorkItem
 from projects.models import Project, ProjectMembership
 
 DEMO_PASSWORD = "demo-password-12345"
@@ -101,7 +101,7 @@ class Command(BaseCommand):
 
             counters = {"todo": 0, "in_progress": 0, "done": 0}
             for card_index, (title, status, priority, due_in_days) in enumerate(cards):
-                Card.objects.create(
+                WorkItem.objects.create(
                     board=board,
                     title=title,
                     description=f"Seeded card for {board_name}.",
@@ -118,7 +118,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {Board.objects.count()} boards, "
-                f"{Card.objects.count()} cards. "
+                f"{WorkItem.objects.count()} work items. "
                 f"Demo logins use the password: {DEMO_PASSWORD}"
             )
         )

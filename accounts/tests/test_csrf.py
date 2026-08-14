@@ -28,7 +28,7 @@ def test_write_without_csrf_token_is_rejected(csrf_client, user, board):
     csrf_client.force_login(user)
 
     response = csrf_client.post(
-        "/api/cards/",
+        "/api/work-items/",
         {"board": board.id, "title": "Should not be created"},
         content_type="application/json",
     )
@@ -45,7 +45,7 @@ def test_write_with_valid_csrf_token_succeeds(csrf_client, user, board):
     token = csrf_response.cookies["csrftoken"].value
 
     response = csrf_client.post(
-        "/api/cards/",
+        "/api/work-items/",
         {"board": board.id, "title": "Created with a valid token"},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=token,

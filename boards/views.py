@@ -8,14 +8,14 @@ from rest_framework.response import Response
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Card, Comment
+from .models import Board, Comment, WorkItem
 from .serializers import (
     BoardSerializer,
-    CardSerializer,
     CommentSerializer,
-    MoveCardSerializer,
+    MoveWorkItemSerializer,
+    WorkItemSerializer,
 )
-from .services import move_card, next_position
+from .services import move_work_item, next_position
 
 
 class BoardViewSet(viewsets.ModelViewSet):
@@ -40,7 +40,7 @@ class BoardViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         # Boards do not move between projects — same "echo-back-unchanged-is-
-        # fine, a real change is rejected" rule Card already applies to
+        # fine, a real change is rejected" rule WorkItem already applies to
         # status/board.
         if "project" in request.data:
             board = self.get_object()
@@ -48,20 +48,20 @@ class BoardViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"project": "Boards cannot be moved between projects."})
         return super().update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["get"])
-    def cards(self, request, pk=None):
+    @action(detail=True, methods=["get"], url_path="work-items")
+    def work_items(self, request, pk=None):
         board = self.get_object()
-        cards = board.cards.select_related("assignee", "created_by")
-        return Response(CardSerializer(cards, many=True).data)
+        items = board.work_items.select_related("assignee", "created_by")
+        return Response(WorkItemSerializer(items, many=True).data)
 
 
-class CardViewSet(viewsets.ModelViewSet):
-    serializer_class = CardSerializer
+class WorkItemViewSet(viewsets.ModelViewSet):
+    serializer_class = WorkItemSerializer
     pagination_class = None
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get_queryset(self):
-        qs = Card.objects.select_related("board__project", "assignee", "created_by")
+        qs = WorkItem.objects.select_related("board__project", "assignee", "created_by")
         if self.action == "list":
             qs = qs.filter(
                 board__project_id__in=ProjectMembership.objects.filter(
@@ -72,7 +72,7 @@ class CardViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         board = serializer.validated_data["board"]
-        status = serializer.validated_data.get("status", Card.Status.TODO)
+        status = serializer.validated_data.get("status", WorkItem.Status.TODO)
         serializer.save(
             created_by=self.request.user,
             position=next_position(board.id, status),
@@ -81,79 +81,78 @@ class CardViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just
         # calls this with partial=True. An actual status CHANGE here would
-        # move the card between columns with NO renumbering — the source
+        # move the item between columns with NO renumbering — the source
         # keeps a gap, the destination gets a duplicate position — so that's
         # rejected in favour of the one route that renumbers correctly.
         # Only a real change is rejected: a UI that PATCHes back the full set
         # of fields it's holding (status included, unchanged, alongside a
         # genuine edit like title) must not have that legitimate edit 400'd
         # just because the status key was present in the body.
-        # Same defect, same fix, for board: relocating a card to a different
+        # Same defect, same fix, for board: relocating an item to a different
         # board with a plain PATCH would leave a gap in the source column's
         # positions and a duplicate position in the destination column — no
-        # renumbering happens either side. Cards do not move between boards
-        # in this product at all, so unlike status there is no endpoint to
-        # redirect to; a real change is just rejected outright. As with
-        # status, a PATCH that echoes back the card's current, unchanged
-        # board alongside a genuine edit (e.g. title) must not be 400'd.
+        # renumbering happens either side. Work items do not move between
+        # boards in this product at all, so unlike status there is no
+        # endpoint to redirect to; a real change is just rejected outright.
         if "status" in request.data or "board" in request.data:
-            card = self.get_object()
-            if "status" in request.data and request.data["status"] != card.status:
+            item = self.get_object()
+            if "status" in request.data and request.data["status"] != item.status:
                 raise ValidationError(
                     {
                         "status": (
                             "Status cannot be changed here — "
-                            "POST to /api/cards/{id}/move/ instead."
+                            "POST to /api/work-items/{id}/move/ instead."
                         )
                     }
                 )
-            if "board" in request.data and str(request.data["board"]) != str(card.board_id):
+            if "board" in request.data and str(request.data["board"]) != str(item.board_id):
                 raise ValidationError(
                     {
-                        "board": "Cards cannot be moved between boards."
+                        "board": "Work items cannot be moved between boards."
                     }
                 )
         return super().update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
     def move(self, request, pk=None):
-        card = self.get_object()
+        item = self.get_object()
 
-        serializer = MoveCardSerializer(data=request.data)
+        serializer = MoveWorkItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         try:
-            move_card(
-                card,
+            move_work_item(
+                item,
                 serializer.validated_data["status"],
                 serializer.validated_data["position"],
             )
-        except Card.DoesNotExist:
-            # The card was deleted by another request between this request's
-            # (unlocked) get_object() and move_card()'s row lock. Card.DoesNotExist
-            # is not converted to 404 by DRF's default exception handler on its
-            # own (only django.http.Http404 and PermissionDenied are) — it has to
-            # be translated explicitly, or this would surface as a 500.
-            raise Http404("Card was deleted before the move could be applied.")
-        card.refresh_from_db()
-        return Response(CardSerializer(card).data)
+        except WorkItem.DoesNotExist:
+            # The item was deleted by another request between this request's
+            # (unlocked) get_object() and move_work_item()'s row lock.
+            # WorkItem.DoesNotExist is not converted to 404 by DRF's default
+            # exception handler on its own (only django.http.Http404 and
+            # PermissionDenied are) — it has to be translated explicitly, or
+            # this would surface as a 500.
+            raise Http404("Work item was deleted before the move could be applied.")
+        item.refresh_from_db()
+        return Response(WorkItemSerializer(item).data)
 
     @action(detail=True, methods=["get", "post"])
     def comments(self, request, pk=None):
-        card = self.get_object()
+        item = self.get_object()
 
         if request.method == "POST":
             serializer = CommentSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            serializer.save(card=card, author=request.user)
+            serializer.save(card=item, author=request.user)
             return Response(serializer.data, status=201)
 
-        thread = card.comments.select_related("author")
+        thread = item.comments.select_related("author")
         return Response(CommentSerializer(thread, many=True).data)
 
 
 class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
-    """Deletion only — comments are created through the card's own endpoint."""
+    """Deletion only — comments are created through the work item's own endpoint."""
 
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticated, IsProjectMember]

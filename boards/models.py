@@ -22,7 +22,7 @@ class Board(models.Model):
         return self.name
 
 
-class Card(models.Model):
+class WorkItem(models.Model):
     class Status(models.TextChoices):
         TODO = "todo", "To Do"
         IN_PROGRESS = "in_progress", "In Progress"
@@ -33,7 +33,7 @@ class Card(models.Model):
         MEDIUM = 2, "Medium"
         HIGH = 3, "High"
 
-    board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name="cards")
+    board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name="work_items")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     status = models.CharField(
@@ -48,14 +48,14 @@ class Card(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="assigned_cards",
+        related_name="assigned_work_items",
     )
     position = models.IntegerField(default=0)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
-        related_name="cards_created",
+        related_name="work_items_created",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -73,7 +73,7 @@ class Card(models.Model):
 
 
 class Comment(models.Model):
-    card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="comments")
+    card = models.ForeignKey(WorkItem, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
