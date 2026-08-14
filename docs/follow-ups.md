@@ -40,6 +40,14 @@ considered and consciously deferred. Recorded so the next two plans don't redisc
   rejected: nothing reads positions in a way contiguity would protect.
 - **No concurrency tests.** Threaded tests against a shared host MySQL are flaky. The one real
   concurrency bug found in this build is pinned by two deterministic regression tests instead.
+- **`assignee` on a card is not validated against project membership.** `GET /api/users/` (the assignee
+  dropdown) returns every active user, unscoped by project — a card can be assigned to someone who isn't a
+  member of that card's project. This was harmless before the Projects & Membership work (everyone could
+  see every card); now that `MyTasksView` and card retrieval are project-scoped, that assignee silently
+  can't see or open the card they were assigned. Left as-is deliberately: restricting `assignee` to project
+  members was never requested by any spec or plan, and doing it now would need to touch existing tests that
+  intentionally assign cards to non-members. Whoever picks up the "Work Item Hierarchy" sub-project should
+  decide whether to close this.
 
 ## Local development note
 

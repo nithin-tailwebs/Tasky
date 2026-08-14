@@ -63,3 +63,23 @@ def test_cannot_respond_to_someone_elses_invitation(auth_client, other_user):
 
     assert response.status_code == 403
     assert not ProjectMembership.objects.filter(project=project, user=third).exists()
+
+
+@pytest.mark.django_db
+def test_accepting_an_already_accepted_invitation_is_rejected(auth_client, pending_invite):
+    auth_client.post(f"/api/invitations/{pending_invite.id}/accept/")
+
+    response = auth_client.post(f"/api/invitations/{pending_invite.id}/accept/")
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_re_accepting_after_being_removed_does_not_silently_rejoin(auth_client, pending_invite, user):
+    auth_client.post(f"/api/invitations/{pending_invite.id}/accept/")
+    ProjectMembership.objects.filter(project=pending_invite.project, user=user).delete()
+
+    response = auth_client.post(f"/api/invitations/{pending_invite.id}/accept/")
+
+    assert response.status_code == 400
+    assert not ProjectMembership.objects.filter(project=pending_invite.project, user=user).exists()

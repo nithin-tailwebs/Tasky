@@ -126,6 +126,13 @@ def test_admin_cannot_change_roles(auth_client, other_user, project_with_roles):
 
 
 @pytest.mark.django_db
+def test_a_non_numeric_user_id_in_the_url_is_404_not_500(auth_client, project_with_roles):
+    project, _ = project_with_roles
+    response = auth_client.delete(f"/api/projects/{project.id}/members/not-a-number/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
 def test_the_owners_role_cannot_be_changed_here(auth_client, project_with_roles, user, other_user):
     project, _ = project_with_roles
     # other_user (admin) tries to demote... but only owner can change roles at

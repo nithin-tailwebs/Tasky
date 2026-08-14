@@ -78,10 +78,31 @@ def test_a_non_member_cannot_retrieve_a_card(auth_client, other_user, foreign_pr
 
 
 @pytest.mark.django_db
+def test_cannot_create_a_card_on_a_board_in_a_project_you_do_not_belong_to(auth_client, other_user, foreign_project):
+    board = Board.objects.create(name="Hidden", created_by=other_user, project=foreign_project)
+
+    response = auth_client.post(
+        "/api/cards/", {"board": board.id, "title": "Sneaky"}, content_type="application/json"
+    )
+
+    assert response.status_code == 400
+    assert "board" in response.json()
+
+
+@pytest.mark.django_db
 def test_a_non_member_cannot_delete_someones_elses_comment(auth_client, other_user, foreign_project):
     board = Board.objects.create(name="Hidden", created_by=other_user, project=foreign_project)
     card = Card.objects.create(board=board, title="Secret")
     comment = Comment.objects.create(card=card, author=other_user, body="Not yours to see")
+
+    assert auth_client.delete(f"/api/comments/{comment.id}/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_non_member_cannot_delete_an_authorless_comment_in_a_foreign_project(auth_client, other_user, foreign_project):
+    board = Board.objects.create(name="Hidden", created_by=other_user, project=foreign_project)
+    card = Card.objects.create(board=board, title="Secret")
+    comment = Comment.objects.create(card=card, author=None, body="Orphaned, in a project you're not in")
 
     assert auth_client.delete(f"/api/comments/{comment.id}/").status_code == 403
 

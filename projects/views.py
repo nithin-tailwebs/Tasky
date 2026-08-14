@@ -1,9 +1,9 @@
 from django.db import transaction
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -67,7 +67,7 @@ class ProjectViewSet(
         )
         return Response(ProjectMembershipSerializer(memberships, many=True).data)
 
-    @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>[^/.]+)")
+    @action(detail=True, methods=["delete"], url_path=r"members/(?P<user_id>\d+)")
     def remove_member(self, request, pk=None, user_id=None):
         """Doubles as "leave": removing your own membership is only ever
         blocked for the Owner (who must transfer ownership first). Removing
@@ -90,7 +90,7 @@ class ProjectViewSet(
         target.delete()
         return Response(status=204)
 
-    @action(detail=True, methods=["post"], url_path=r"members/(?P<user_id>[^/.]+)/role")
+    @action(detail=True, methods=["post"], url_path=r"members/(?P<user_id>\d+)/role")
     def change_role(self, request, pk=None, user_id=None):
         project = self.get_object()
         acting = project.memberships.get(user=request.user)
@@ -161,6 +161,7 @@ class ProjectViewSet(
 
 class InvitationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = InvitationSerializer
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -173,6 +174,8 @@ class InvitationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         invitation = get_object_or_404(Invitation, pk=pk)
         if invitation.invited_user_id != request.user.id:
             raise PermissionDenied("You can only respond to your own invitations.")
+        if invitation.status != Invitation.Status.PENDING:
+            raise ValidationError({"detail": "This invitation has already been answered."})
 
         invitation.status = Invitation.Status.ACCEPTED
         invitation.responded_at = timezone.now()
@@ -189,6 +192,8 @@ class InvitationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         invitation = get_object_or_404(Invitation, pk=pk)
         if invitation.invited_user_id != request.user.id:
             raise PermissionDenied("You can only respond to your own invitations.")
+        if invitation.status != Invitation.Status.PENDING:
+            raise ValidationError({"detail": "This invitation has already been answered."})
 
         invitation.status = Invitation.Status.DECLINED
         invitation.responded_at = timezone.now()

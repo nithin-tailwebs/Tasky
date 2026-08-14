@@ -72,7 +72,7 @@ other removal).
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/cards/` | every card on a board in a project I'm a member of — not filtered to "my boards" specifically, but scoped by project membership |
-| POST | `/api/cards/` | `{board, title, description?, status?, priority?, due_date?, assignee?}`; `status` defaults to `todo` when omitted |
+| POST | `/api/cards/` | `{board, title, description?, status?, priority?, due_date?, assignee?}`; `status` defaults to `todo` when omitted; `board` must belong to a project I'm a member of |
 | GET/PUT/PATCH/DELETE | `/api/cards/{id}/` | `position` is read-only here; `status` and `board` cannot be changed here either — see below |
 | POST | `/api/cards/{id}/move/` | `{status, position}` — the drag-and-drop endpoint; returns the updated card, or 404 if the card was deleted before the move could be applied |
 
@@ -91,7 +91,7 @@ Card responses also carry read-only extras beyond the writable fields above: `as
 | Method | Path | Notes |
 |---|---|---|
 | GET/POST | `/api/cards/{id}/comments/` | POST takes `{body}`; author comes from the session |
-| DELETE | `/api/comments/{id}/` | if the comment has an author, only that author can delete it (otherwise 403); if the comment's author account has been deleted (`author` is `null`), any signed-in user can delete it |
+| DELETE | `/api/comments/{id}/` | if the comment has an author, only that author can delete it (otherwise 403); if the comment's author account has been deleted (`author` is `null`), any signed-in user who is a member of the comment's project can delete it (403 for non-members) |
 
 ## Invitations
 | Method | Path | Notes |
