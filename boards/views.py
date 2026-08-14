@@ -239,12 +239,16 @@ class WorkItemLinkViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
         return WorkItemLink.objects.select_related("item_a__board__project", "item_b__board__project")
 
     def check_object_permissions(self, request, obj):
-        # Either side being in one of my projects is enough — the item that
-        # created the link already proved membership; this just confirms
-        # the caller isn't a total stranger to both.
-        in_a = obj.item_a.project.memberships.filter(user=request.user).exists()
-        in_b = obj.item_b.project.memberships.filter(user=request.user).exists()
-        if not (in_a or in_b):
+        # Matches the AND semantics the create path already enforces: a
+        # link can only be created between two items the caller can both
+        # see (member of both items' projects), so removing it requires
+        # the same — membership in only one side's project is not enough.
+        # Reuses IsProjectMember.has_object_permission (same check
+        # WorkItemViewSet.links() runs against `item` via get_object() and
+        # against `other` via the explicit check_object_permissions call)
+        # rather than hand-rolling the membership query twice here.
+        is_member = IsProjectMember().has_object_permission
+        if not (is_member(request, self, obj.item_a) and is_member(request, self, obj.item_b)):
             self.permission_denied(request, message="You don't have access to this project.")
 
 

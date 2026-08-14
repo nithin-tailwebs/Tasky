@@ -1,6 +1,7 @@
 import pytest
 
 from boards.models import Board, WorkItem, WorkItemLink
+from projects.models import Project, ProjectMembership
 
 
 @pytest.fixture
@@ -84,3 +85,26 @@ def test_removing_a_link_removes_it_from_both_sides(auth_client, item_a, item_b)
     assert auth_client.delete(f"/api/work-item-links/{link_id}/").status_code == 204
     assert auth_client.get(f"/api/work-items/{item_a.id}/links/").json() == []
     assert auth_client.get(f"/api/work-items/{item_b.id}/links/").json() == []
+
+
+@pytest.mark.django_db
+def test_deleting_a_link_requires_membership_in_both_projects(auth_client, user, other_user, item_a):
+    # The create path only ever lets a link form between two items the
+    # caller can see in both projects (WorkItemViewSet.links() checks
+    # get_object() for `item` and check_object_permissions() for `other`),
+    # so a link spanning a project `user` isn't in can't be produced
+    # through the API — it's built directly here to isolate the DELETE
+    # path's own authorization check.
+    foreign_project = Project.objects.create(key="FOREIGN", name="Not Yours")
+    ProjectMembership.objects.create(project=foreign_project, user=other_user, role="owner")
+    foreign_board = Board.objects.create(name="Foreign Board", created_by=other_user, project=foreign_project)
+    foreign_item = WorkItem.objects.create(board=foreign_board, title="Foreign Item")
+
+    item_a_obj, item_b_obj = sorted([item_a, foreign_item], key=lambda w: w.id)
+    link = WorkItemLink.objects.create(item_a=item_a_obj, item_b=item_b_obj, created_by=other_user)
+
+    # `user` (the auth_client's caller) is a member of item_a's project but
+    # not foreign_item's — being on only one side must not be enough.
+    response = auth_client.delete(f"/api/work-item-links/{link.id}/")
+    assert response.status_code == 403
+    assert WorkItemLink.objects.filter(id=link.id).exists()
