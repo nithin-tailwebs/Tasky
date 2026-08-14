@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.http import Http404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -5,7 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from projects.models import ProjectMembership
+from projects.models import Project, ProjectMembership
 from projects.permissions import IsProjectMember
 
 from .models import Board, Comment, WorkItem
@@ -14,6 +15,7 @@ from .serializers import (
     CommentSerializer,
     MoveWorkItemSerializer,
     WorkItemSerializer,
+    WorkItemSummarySerializer,
 )
 from .services import move_work_item, next_position
 
@@ -73,10 +75,16 @@ class WorkItemViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         board = serializer.validated_data["board"]
         status = serializer.validated_data.get("status", WorkItem.Status.TODO)
-        serializer.save(
-            created_by=self.request.user,
-            position=next_position(board.id, status),
-        )
+        with transaction.atomic():
+            project = Project.objects.select_for_update().get(pk=board.project_id)
+            key = f"{project.key}-{project.next_item_number}"
+            project.next_item_number += 1
+            project.save(update_fields=["next_item_number"])
+            serializer.save(
+                key=key,
+                created_by=self.request.user,
+                position=next_position(board.id, status),
+            )
 
     def update(self, request, *args, **kwargs):
         # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just
@@ -94,7 +102,7 @@ class WorkItemViewSet(viewsets.ModelViewSet):
         # renumbering happens either side. Work items do not move between
         # boards in this product at all, so unlike status there is no
         # endpoint to redirect to; a real change is just rejected outright.
-        if "status" in request.data or "board" in request.data:
+        if "status" in request.data or "board" in request.data or "item_type" in request.data or "key" in request.data:
             item = self.get_object()
             if "status" in request.data and request.data["status"] != item.status:
                 raise ValidationError(
@@ -111,6 +119,10 @@ class WorkItemViewSet(viewsets.ModelViewSet):
                         "board": "Work items cannot be moved between boards."
                     }
                 )
+            if "item_type" in request.data and request.data["item_type"] != item.item_type:
+                raise ValidationError({"item_type": "Type cannot be changed after creation."})
+            if "key" in request.data and request.data["key"] != item.key:
+                raise ValidationError({"key": "Key cannot be changed."})
         return super().update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
@@ -136,6 +148,11 @@ class WorkItemViewSet(viewsets.ModelViewSet):
             raise Http404("Work item was deleted before the move could be applied.")
         item.refresh_from_db()
         return Response(WorkItemSerializer(item).data)
+
+    @action(detail=True, methods=["get"])
+    def children(self, request, pk=None):
+        item = self.get_object()
+        return Response(WorkItemSummarySerializer(item.children.all(), many=True).data)
 
     @action(detail=True, methods=["get", "post"])
     def comments(self, request, pk=None):

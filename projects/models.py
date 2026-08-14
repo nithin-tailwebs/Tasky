@@ -6,6 +6,7 @@ class Project(models.Model):
     key = models.CharField(max_length=10, unique=True)
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
+    next_item_number = models.IntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
