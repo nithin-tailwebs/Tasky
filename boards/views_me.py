@@ -21,6 +21,7 @@ class MyTasksView(ListAPIView):
         return (
             WorkItem.objects.filter(assignee=self.request.user, board__project_id__in=member_project_ids)
             .exclude(status=WorkItem.Status.DONE)
-            .select_related("board", "assignee", "created_by")
+            .select_related("board", "assignee", "created_by", "parent")
+            .prefetch_related("components")
             .order_by(F("due_date").asc(nulls_last=True), "-priority", "id")
         )
