@@ -49,6 +49,14 @@ considered and consciously deferred. Recorded so the next two plans don't redisc
   intentionally assign cards to non-members. Whoever picks up the "Work Item Hierarchy" sub-project should
   decide whether to close this.
 
+## Known breakage from the Work Item Hierarchy rename
+
+- **`ui/static/js/api.js` and `ui/static/js/store.js` still call `/api/cards/`.** The
+  `/api/cards/` → `/api/work-items/` rename (Work Item Hierarchy sub-project) updated the
+  backend and `docs/api.md` but not the UI, which now 403/404s on every card create, update,
+  delete, move, and comment call. Recorded here so it isn't rediscovered as a mystery bug —
+  the fix belongs to whichever sub-project next touches the UI for hierarchy.
+
 ## Local development note
 
 This machine's `.env` uses `MYSQL_PORT=3307` because a second MySQL occupies 3306. `.env.example`

@@ -24,7 +24,7 @@ The branch was deliberately **not** merged — that decision is still open. Opti
 | Session-cookie auth, same origin (login / logout / me / csrf) | done |
 | Boards — CRUD, everyone sees every board | done |
 | Cards — CRUD, priority, due date, assignee, comments | done |
-| Drag-ordering via `POST /api/cards/{id}/move/` | done, incl. a concurrency fix |
+| Drag-ordering via `POST /api/work-items/{id}/move/` | done, incl. a concurrency fix |
 | "My tasks" across boards, users list for the assignee dropdown | done |
 | Django admin — this is how teammates get created | done |
 | `seed_demo` management command for local data | done |
@@ -81,7 +81,7 @@ The design spec settles *what* to build. Neither remaining plan is written yet.
 1. **React UI** — the board, drag-and-drop, the card modal, my-tasks, login. Build against
    `docs/api.md`. Three API behaviours will bite if missed, all documented there:
    `status` and `board` cannot be changed with a `PATCH` (use `/move/`); unauthenticated calls
-   return **403**, not 401; and `GET /api/boards/{id}/cards/` **interleaves** the three columns,
+   return **403**, not 401; and `GET /api/boards/{id}/work-items/` **interleaves** the three columns,
    so the client groups by `status` itself.
 2. **Deployment** — Docker image behind Apache on EC2, RDS MySQL. `docs/follow-ups.md` lists the
    full scope, plus the pre-flight chore: rotate the dev superuser `admin` before anything is

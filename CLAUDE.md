@@ -59,9 +59,9 @@ The API is finished and documented in `docs/api.md`. Read it before writing any 
 Three behaviours cause bugs if missed:
 
 - **Unauthenticated calls return `403`, never `401`.**
-- **`status` and `board` cannot be changed via `PATCH`** on `/api/cards/{id}/`. Column moves
-  go only through `POST /api/cards/{id}/move/`.
-- **`GET /api/boards/{id}/cards/` interleaves all three columns** in one position-ordered
+- **`status` and `board` cannot be changed via `PATCH`** on `/api/work-items/{id}/`. Column moves
+  go only through `POST /api/work-items/{id}/move/`.
+- **`GET /api/boards/{id}/work-items/` interleaves all three columns** in one position-ordered
   list. The client groups by `status` itself.
 
 Also: `position` is not contiguous. Gaps like `0, 2, 3` are normal after a delete and must
