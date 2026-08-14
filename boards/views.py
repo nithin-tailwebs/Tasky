@@ -1,4 +1,3 @@
-from django.db import transaction
 from django.http import Http404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
@@ -6,7 +5,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from projects.models import Project, ProjectMembership
+from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
 from .models import Board, Comment, WorkItem
@@ -73,18 +72,20 @@ class WorkItemViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        # No key-generation logic here: WorkItem.save() generates it (under
+        # a real select_for_update() lock on the owning Project row) for
+        # every creation path uniformly, API included, since a freshly
+        # instantiated WorkItem's `key` is always falsy until save() sets
+        # it. Keeping it there instead of duplicating it here avoids two
+        # independent implementations of the same locked counter drifting
+        # apart, and keeps the lock + increment + INSERT in one atomic block
+        # instead of splitting them across two.
         board = serializer.validated_data["board"]
         status = serializer.validated_data.get("status", WorkItem.Status.TODO)
-        with transaction.atomic():
-            project = Project.objects.select_for_update().get(pk=board.project_id)
-            key = f"{project.key}-{project.next_item_number}"
-            project.next_item_number += 1
-            project.save(update_fields=["next_item_number"])
-            serializer.save(
-                key=key,
-                created_by=self.request.user,
-                position=next_position(board.id, status),
-            )
+        serializer.save(
+            created_by=self.request.user,
+            position=next_position(board.id, status),
+        )
 
     def update(self, request, *args, **kwargs):
         # Covers both PUT and PATCH: UpdateModelMixin.partial_update() just

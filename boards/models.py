@@ -85,18 +85,19 @@ class WorkItem(models.Model):
 
     def save(self, *args, **kwargs):
         # `key` is required+unique, so it must always be populated before the
-        # row hits the database. The API path (WorkItemViewSet.perform_create)
-        # generates it up front, under the same project-scoped, row-locked
-        # counter, and passes it in — so `self.key` is already set by the
-        # time save() runs there and this is a no-op. This fallback exists
-        # for every other path that creates a WorkItem directly (fixtures,
-        # tests, the admin, management commands, data migrations): without
-        # it, every such create would hit the same blank default and collide
-        # on the unique constraint after the first one. Unlike
-        # `services.next_position()`, which is deliberately unlocked and
-        # self-healing because a collision there just means a harmless
-        # re-sort, a duplicate `key` is a real correctness bug — hence the
-        # real `select_for_update()` lock here, not a lock-free retry.
+        # row hits the database. A freshly instantiated WorkItem's `key` is
+        # falsy (Django's CharField default, absent an explicit value) no
+        # matter how it's created — via the API, a fixture, the admin, a
+        # management command, or a data migration — so this is the single
+        # place key generation happens; there is no separate copy of this
+        # logic in the view. Unlike `services.next_position()`, which is
+        # deliberately unlocked and self-healing because a collision there
+        # just means a harmless re-sort, a duplicate `key` is a real
+        # correctness bug — hence the real `select_for_update()` lock here,
+        # not a lock-free retry. The lock, the counter increment, and the
+        # INSERT itself all happen inside one atomic block, so a failure in
+        # the INSERT rolls back the counter increment too instead of
+        # permanently burning a key number.
         if not self.key:
             from projects.models import Project
 
@@ -105,7 +106,9 @@ class WorkItem(models.Model):
                 self.key = f"{project.key}-{project.next_item_number}"
                 project.next_item_number += 1
                 project.save(update_fields=["next_item_number"])
-        super().save(*args, **kwargs)
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 class Comment(models.Model):
