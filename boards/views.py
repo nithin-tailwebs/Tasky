@@ -1,4 +1,5 @@
 from django.http import Http404
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -8,13 +9,15 @@ from rest_framework.response import Response
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Comment, WorkItem
+from .models import Board, Comment, Component, WorkItem
 from .serializers import (
     BoardSerializer,
     CommentSerializer,
+    ComponentSerializer,
     MoveWorkItemSerializer,
     WorkItemSerializer,
     WorkItemSummarySerializer,
+    can_manage_components,
 )
 from .services import move_work_item, next_position
 
@@ -186,4 +189,66 @@ class CommentViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet):
         # so ownership is only enforced when there is an owner to enforce.
         if instance.author_id is not None and instance.author != self.request.user:
             raise PermissionDenied("You can only delete your own comments.")
+        instance.delete()
+
+
+class ComponentViewSet(viewsets.ModelViewSet):
+    http_method_names = ["get", "post", "patch", "delete"]
+    serializer_class = ComponentSerializer
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    pagination_class = None
+
+    def get_project(self):
+        from projects.models import Project
+
+        return get_object_or_404(Project, pk=self.kwargs["project_pk"])
+
+    def get_queryset(self):
+        return Component.objects.filter(project_id=self.kwargs["project_pk"])
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        # IsProjectMember needs an object to check on list/create, where DRF
+        # never calls check_object_permissions — the project itself stands
+        # in. For patch/delete, DRF's own get_object() already calls
+        # check_object_permissions() with the fetched Component instance —
+        # Component.project is a real FK field, so IsProjectMember resolves
+        # it correctly with no override needed there.
+        if self.action in ("list", "create"):
+            self.check_object_permissions(request, self.get_project())
+
+    def perform_create(self, serializer):
+        project = self.get_project()
+        role = project.memberships.get(user=self.request.user).role
+        if not can_manage_components(role):
+            raise PermissionDenied("You don't have permission to manage components.")
+        # `project` is a read-only field on ComponentSerializer (it comes from
+        # the URL, not the body) and has no default, so DRF's automatic
+        # UniqueTogetherValidator for the (project, name) constraint never
+        # gets built — get_unique_together_validators() requires every
+        # constrained field to be resolvable from the submitted data. Left
+        # unchecked, a duplicate name would hit the DB constraint directly
+        # and surface as an uncaught IntegrityError (500) instead of a 400.
+        name = serializer.validated_data.get("name")
+        if Component.objects.filter(project=project, name=name).exists():
+            raise ValidationError({"name": "A component with this name already exists in this project."})
+        serializer.save(project=project)
+
+    def perform_update(self, serializer):
+        role = serializer.instance.project.memberships.get(user=self.request.user).role
+        if not can_manage_components(role):
+            raise PermissionDenied("You don't have permission to manage components.")
+        name = serializer.validated_data.get("name", serializer.instance.name)
+        if (
+            Component.objects.filter(project=serializer.instance.project, name=name)
+            .exclude(pk=serializer.instance.pk)
+            .exists()
+        ):
+            raise ValidationError({"name": "A component with this name already exists in this project."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        role = instance.project.memberships.get(user=self.request.user).role
+        if not can_manage_components(role):
+            raise PermissionDenied("You don't have permission to manage components.")
         instance.delete()

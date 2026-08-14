@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Comment, WorkItem
+from .models import Board, Comment, Component, WorkItem
 
 VALID_PARENT_TYPES = {
     WorkItem.ItemType.EPIC: [],
@@ -29,6 +29,10 @@ def hierarchy_error(item_type, parent):
     return None
 
 
+def can_manage_components(role):
+    return role in ("owner", "admin")
+
+
 class BoardSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(read_only=True)
 
@@ -41,6 +45,18 @@ class BoardSerializer(serializers.ModelSerializer):
         if not value.memberships.filter(user=request.user).exists():
             raise serializers.ValidationError("You must be a member of this project to create a board in it.")
         return value
+
+
+class ComponentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Component
+        fields = ["id", "project", "name"]
+        read_only_fields = ["project"]
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("This field may not be blank.")
+        return value.strip()
 
 
 class WorkItemSummarySerializer(serializers.ModelSerializer):
@@ -57,6 +73,7 @@ class WorkItemSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(read_only=True)
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
     parent_detail = WorkItemSummarySerializer(source="parent", read_only=True)
+    components_detail = ComponentSerializer(source="components", many=True, read_only=True)
 
     class Meta:
         model = WorkItem
@@ -64,6 +81,7 @@ class WorkItemSerializer(serializers.ModelSerializer):
             "id", "key", "board", "item_type", "title", "description",
             "status", "priority", "priority_label", "due_date",
             "assignee", "assignee_detail", "parent", "parent_detail",
+            "components", "components_detail",
             "position", "created_by", "created_at", "updated_at",
         ]
         read_only_fields = ["key", "position"]
@@ -92,6 +110,14 @@ class WorkItemSerializer(serializers.ModelSerializer):
             error = hierarchy_error(item_type, parent)
             if error:
                 raise serializers.ValidationError({"parent": error})
+
+        if "components" in attrs:
+            board = attrs.get("board") or (self.instance.board if self.instance else None)
+            mismatched = [c for c in attrs["components"] if c.project_id != board.project_id]
+            if mismatched:
+                raise serializers.ValidationError(
+                    {"components": "Components must belong to this item's project."}
+                )
 
         return attrs
 

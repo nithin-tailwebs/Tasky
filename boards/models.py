@@ -62,6 +62,7 @@ class WorkItem(models.Model):
     parent = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children"
     )
+    components = models.ManyToManyField("Component", blank=True, related_name="work_items")
     position = models.IntegerField(default=0)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -109,6 +110,20 @@ class WorkItem(models.Model):
                 super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+
+class Component(models.Model):
+    project = models.ForeignKey("projects.Project", on_delete=models.CASCADE, related_name="components")
+    name = models.CharField(max_length=80)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="unique_component_name_per_project"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.project})"
 
 
 class Comment(models.Model):
