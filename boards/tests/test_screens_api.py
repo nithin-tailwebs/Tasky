@@ -178,3 +178,20 @@ def test_non_numeric_position_on_reorder_is_rejected(auth_client, project):
     assert "position" in response.json()
     row.refresh_from_db()
     assert row.position == original_position
+
+
+@pytest.mark.django_db
+def test_field_cannot_be_changed_after_it_is_added_to_a_screen(auth_client, project):
+    screen = Screen.objects.create(name="Bug screen")
+    field_a = CustomField.objects.create(name="A", field_type="text_short", created_by=None)
+    field_b = CustomField.objects.create(name="B", field_type="text_short", created_by=None)
+    row = ScreenField.objects.create(screen=screen, field=field_a, position=0)
+    original_field_id = row.field_id
+
+    response = auth_client.patch(
+        f"/api/screens/{screen.id}/fields/{row.id}/", {"field": field_b.id}, content_type="application/json"
+    )
+    assert response.status_code == 400
+    assert "field" in response.json()
+    row.refresh_from_db()
+    assert row.field_id == original_field_id

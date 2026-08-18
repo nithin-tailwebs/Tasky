@@ -488,6 +488,14 @@ class ScreenFieldViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return ScreenField.objects.filter(screen_id=self.kwargs["screen_pk"])
 
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if "field" in request.data and str(request.data["field"]) != str(instance.field_id):
+            raise ValidationError(
+                {"field": "The field on a screen can't be changed after it's added — remove it and add the new one instead."}
+            )
+        return super().update(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         if not user_can_manage_definitions(self.request.user):
             raise PermissionDenied(
