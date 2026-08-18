@@ -33,6 +33,10 @@ def can_manage_components(role):
     return role in ("owner", "admin")
 
 
+def can_manage_screen_assignments(role):
+    return role in ("owner", "admin")
+
+
 def user_can_manage_definitions(user):
     from projects.models import ProjectMembership
 

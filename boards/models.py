@@ -201,6 +201,20 @@ class ScreenField(models.Model):
         return f"{self.field} on {self.screen}"
 
 
+class ProjectScreenAssignment(models.Model):
+    project = models.ForeignKey("projects.Project", on_delete=models.CASCADE, related_name="screen_assignments")
+    item_type = models.CharField(max_length=10, choices=WorkItem.ItemType.choices)
+    screen = models.ForeignKey(Screen, on_delete=models.CASCADE, related_name="assignments")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["project", "item_type"], name="unique_screen_assignment_per_item_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project} {self.item_type} -> {self.screen}"
+
+
 class WorkItemLink(models.Model):
     """Symmetric — there is no "from"/"to" direction. item_a always holds
     the lower id, so (A, B) and (B, A) are the same row; enforced by the

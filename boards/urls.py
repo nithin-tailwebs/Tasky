@@ -7,6 +7,7 @@ from .views import (
     ComponentViewSet,
     CustomFieldViewSet,
     FieldOptionViewSet,
+    ProjectScreenAssignmentsView,
     ScreenFieldViewSet,
     ScreenViewSet,
     WorkItemLinkViewSet,
@@ -51,5 +52,10 @@ urlpatterns = router.urls + [
         "screens/<int:screen_pk>/fields/<int:pk>/",
         ScreenFieldViewSet.as_view({"patch": "partial_update", "delete": "destroy"}),
         name="screen-field-detail",
+    ),
+    path(
+        "projects/<int:project_pk>/screen-assignments/",
+        ProjectScreenAssignmentsView.as_view(),
+        name="project-screen-assignments",
     ),
 ]

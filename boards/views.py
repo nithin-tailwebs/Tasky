@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
@@ -6,11 +6,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Comment, Component, CustomField, FieldOption, Screen, ScreenField, WorkItem, WorkItemLink
+from .models import Board, Comment, Component, CustomField, FieldOption, ProjectScreenAssignment, Screen, ScreenField, WorkItem, WorkItemLink
 from .serializers import (
     BoardSerializer,
     CommentSerializer,
@@ -24,6 +25,7 @@ from .serializers import (
     WorkItemSerializer,
     WorkItemSummarySerializer,
     can_manage_components,
+    can_manage_screen_assignments,
     user_can_manage_definitions,
 )
 from .services import move_work_item, next_position
@@ -323,6 +325,51 @@ class ComponentViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
+class ProjectScreenAssignmentsView(APIView):
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get_project(self):
+        from projects.models import Project
+
+        project = get_object_or_404(Project, pk=self.kwargs["project_pk"])
+        self.check_object_permissions(self.request, project)
+        return project
+
+    def _serialize(self, project):
+        rows = dict(
+            ProjectScreenAssignment.objects.filter(project=project).values_list("item_type", "screen_id")
+        )
+        return {item_type: rows.get(item_type) for item_type in WorkItem.ItemType.values}
+
+    def get(self, request, project_pk=None):
+        return Response(self._serialize(self.get_project()))
+
+    def put(self, request, project_pk=None):
+        project = self.get_project()
+        role = project.memberships.get(user=request.user).role
+        if not can_manage_screen_assignments(role):
+            raise PermissionDenied("Only this project's Owner or Admins can change screen assignments.")
+
+        updates = {}
+        for item_type, screen_id in request.data.items():
+            if item_type not in WorkItem.ItemType.values:
+                raise ValidationError({item_type: "Invalid item type."})
+            if screen_id is not None and not Screen.objects.filter(pk=screen_id).exists():
+                raise ValidationError({item_type: "That screen no longer exists."})
+            updates[item_type] = screen_id
+
+        with transaction.atomic():
+            for item_type, screen_id in updates.items():
+                if screen_id is None:
+                    ProjectScreenAssignment.objects.filter(project=project, item_type=item_type).delete()
+                else:
+                    ProjectScreenAssignment.objects.update_or_create(
+                        project=project, item_type=item_type, defaults={"screen_id": screen_id}
+                    )
+
+        return Response(self._serialize(project))
+
+
 class CustomFieldViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete"]
     serializer_class = CustomFieldSerializer
@@ -465,13 +512,19 @@ class ScreenViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
-        # Unguarded for the same reason CustomFieldViewSet's was in Task 1:
-        # ProjectScreenAssignment doesn't exist until Task 3, so there's
-        # nothing to check a screen's assignment usage against yet. Task 3
-        # replaces this method with the real "still assigned" guard.
         if not user_can_manage_definitions(self.request.user):
             raise PermissionDenied(
                 "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        assigned = list(
+            ProjectScreenAssignment.objects.filter(screen=instance)
+            .select_related("project")
+            .values_list("project__key", "item_type")
+        )
+        if assigned:
+            labels = [f"{key} · {item_type}" for key, item_type in assigned]
+            raise ValidationError(
+                {"detail": f'"{instance.name}" is still assigned to {", ".join(labels)}. Unassign it first.'}
             )
         instance.delete()
 
