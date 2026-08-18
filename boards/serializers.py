@@ -3,6 +3,7 @@ from rest_framework import serializers
 from accounts.serializers import UserSerializer
 
 from .models import Board, Comment, Component, CustomField, FieldOption, Screen, ScreenField, WorkItem, WorkItemLink
+from .services import apply_custom_fields, custom_fields_read_map, custom_fields_write_error
 
 VALID_PARENT_TYPES = {
     WorkItem.ItemType.EPIC: [],
@@ -146,6 +147,7 @@ class WorkItemSerializer(serializers.ModelSerializer):
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
     parent_detail = WorkItemSummarySerializer(source="parent", read_only=True)
     components_detail = ComponentSerializer(source="components", many=True, read_only=True)
+    custom_fields = serializers.DictField(required=False, write_only=True)
 
     class Meta:
         model = WorkItem
@@ -153,7 +155,7 @@ class WorkItemSerializer(serializers.ModelSerializer):
             "id", "key", "board", "item_type", "title", "description",
             "status", "priority", "priority_label", "due_date",
             "assignee", "assignee_detail", "parent", "parent_detail",
-            "components", "components_detail",
+            "components", "components_detail", "custom_fields",
             "position", "created_by", "created_at", "updated_at",
         ]
         read_only_fields = ["key", "position"]
@@ -200,7 +202,44 @@ class WorkItemSerializer(serializers.ModelSerializer):
                     {"components": "Components must belong to this item's project."}
                 )
 
+        if is_create or "custom_fields" in attrs:
+            # On create, the check must run even when `custom_fields` is
+            # omitted entirely (payload defaults to {}) — otherwise a
+            # screen's required field could never be enforced against a
+            # request that just doesn't mention custom fields at all. On
+            # update, only re-validate when the client actually touches
+            # `custom_fields`, so an unrelated PATCH (e.g. just `title`)
+            # doesn't re-check fields it isn't changing.
+            board = attrs.get("board") or (self.instance.board if self.instance else None)
+            item_type = attrs.get("item_type") or (
+                self.instance.item_type if self.instance else WorkItem.ItemType.TASK
+            )
+            error = custom_fields_write_error(
+                board.project, item_type, attrs.get("custom_fields", {}), existing_item=self.instance
+            )
+            if error:
+                raise serializers.ValidationError({"custom_fields": error})
+
         return attrs
+
+    def create(self, validated_data):
+        custom_fields = validated_data.pop("custom_fields", None)
+        instance = super().create(validated_data)
+        if custom_fields:
+            apply_custom_fields(instance, custom_fields)
+        return instance
+
+    def update(self, instance, validated_data):
+        custom_fields = validated_data.pop("custom_fields", None)
+        instance = super().update(instance, validated_data)
+        if custom_fields is not None:
+            apply_custom_fields(instance, custom_fields)
+        return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["custom_fields"] = custom_fields_read_map(instance)
+        return data
 
 
 class WorkItemLinkSerializer(serializers.ModelSerializer):

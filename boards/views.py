@@ -479,13 +479,15 @@ class FieldOptionViewSet(viewsets.ModelViewSet):
                 option.save(update_fields=["position"])
 
     def perform_destroy(self, instance):
-        # Unguarded for the same reason CustomFieldViewSet's was in this
-        # same task: WorkItemFieldValue doesn't exist until Task 4, so
-        # there's nothing to check an option's usage against yet. Task 4
-        # replaces this method with the real "still chosen" guard.
         if not user_can_manage_definitions(self.request.user):
             raise PermissionDenied(
                 "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        from .models import WorkItemFieldValue
+
+        if WorkItemFieldValue.objects.filter(field=instance.field, value=str(instance.pk)).exists():
+            raise ValidationError(
+                {"detail": f'"{instance.label}" is still chosen on a work item. Clear it there first.'}
             )
         field = instance.field
         instance.delete()

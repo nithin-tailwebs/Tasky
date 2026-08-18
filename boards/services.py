@@ -1,8 +1,11 @@
+import datetime
+import re
+
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from .models import WorkItem
+from .models import CustomField, ProjectScreenAssignment, ScreenField, WorkItem, WorkItemFieldValue
 
 
 def next_position(board_id: int, status: str) -> int:
@@ -34,6 +37,180 @@ def next_position(board_id: int, status: str) -> int:
         highest=Max("position")
     )["highest"]
     return 0 if highest is None else highest + 1
+
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_iso_date(value) -> bool:
+    text = str(value)
+    if not _ISO_DATE_RE.match(text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def is_blank_custom_value(field_type, value) -> bool:
+    """Mirrors design/js/logic.js's isBlankValue exactly: blankness is
+    per-type, not a single "falsy" check."""
+    if field_type == CustomField.FieldType.MULTISELECT:
+        return not isinstance(value, list) or len(value) == 0
+    if field_type == CustomField.FieldType.CHECKBOX:
+        return value is not True
+    return value is None or (isinstance(value, str) and not value.strip()) or value == ""
+
+
+def field_value_error(field, value, option_ids, member_ids):
+    """Type-checks one value against its field. Returns a message, or None
+    when it's fine. Mirrors design/js/logic.js's fieldValueError exactly."""
+    field_type = field.field_type
+
+    if field_type == CustomField.FieldType.TEXT_SHORT:
+        return f'"{field.name}" must be 255 characters or fewer.' if len(str(value)) > 255 else None
+    if field_type == CustomField.FieldType.TEXT_LONG:
+        return None
+    if field_type == CustomField.FieldType.NUMBER:
+        try:
+            float(str(value).strip())
+        except (TypeError, ValueError):
+            return f'"{field.name}" must be a number.'
+        return None
+    if field_type == CustomField.FieldType.DATE:
+        return None if _is_iso_date(value) else f'"{field.name}" must be a date (YYYY-MM-DD).'
+    if field_type == CustomField.FieldType.CHECKBOX:
+        return None
+    if field_type == CustomField.FieldType.SELECT:
+        try:
+            ok = int(value) in option_ids
+        except (TypeError, ValueError):
+            ok = False
+        return None if ok else f'"{field.name}" must be one of its current options.'
+    if field_type == CustomField.FieldType.MULTISELECT:
+        try:
+            ok = all(int(v) in option_ids for v in value)
+        except (TypeError, ValueError):
+            ok = False
+        return None if ok else f'"{field.name}" must only use its current options.'
+    if field_type == CustomField.FieldType.USER_PICKER:
+        try:
+            ok = int(value) in member_ids
+        except (TypeError, ValueError):
+            ok = False
+        return None if ok else f'"{field.name}" must be a member of this project.'
+    return f'"{field.name}" has an unknown field type.'
+
+
+def resolve_screen(project, item_type):
+    assignment = (
+        ProjectScreenAssignment.objects.filter(project=project, item_type=item_type)
+        .select_related("screen")
+        .first()
+    )
+    return assignment.screen if assignment else None
+
+
+def custom_fields_read_map(work_item):
+    """Every saved value for this work item, keyed by field id (as a
+    string, matching JSON object key semantics) — regardless of whether
+    its field is still on the currently-assigned screen. Mirrors
+    design/js/store.js's customFieldsOf's `map` half exactly."""
+    values_by_field = {}
+    for value in work_item.field_values.select_related("field"):
+        values_by_field.setdefault(value.field, []).append(value)
+
+    result = {}
+    for field, rows in values_by_field.items():
+        key = str(field.id)
+        if field.field_type == CustomField.FieldType.MULTISELECT:
+            result[key] = [int(row.value) for row in rows]
+        elif field.field_type == CustomField.FieldType.CHECKBOX:
+            result[key] = True
+        elif field.field_type in (CustomField.FieldType.SELECT, CustomField.FieldType.USER_PICKER):
+            result[key] = int(rows[0].value)
+        else:
+            result[key] = rows[0].value
+    return result
+
+
+def custom_fields_write_error(project, item_type, payload, existing_item=None):
+    """None if the payload is fine, else a dict of {field_id: message} (or,
+    for the no-screen-assigned case, a single string) suitable for
+    `serializers.ValidationError({"custom_fields": <this>})`. Mirrors
+    design/js/store.js's customFieldsError exactly."""
+    screen = resolve_screen(project, item_type)
+
+    if screen is None:
+        if not payload:
+            return None
+        label = dict(WorkItem.ItemType.choices)[item_type]
+        return (
+            f"{label} items in this project have no screen assigned, "
+            f"so custom fields can't be set on them."
+        )
+
+    rows = list(ScreenField.objects.filter(screen=screen).select_related("field").order_by("position", "id"))
+    allowed_ids = {row.field_id for row in rows}
+
+    stray = {}
+    for key in payload:
+        try:
+            key_id = int(key)
+        except (TypeError, ValueError):
+            stray[key] = "That field isn't on this screen."
+            continue
+        if key_id not in allowed_ids:
+            field = CustomField.objects.filter(pk=key_id).first()
+            name = f'"{field.name}"' if field else "That field"
+            stray[key] = f'{name} isn\'t on the "{screen.name}" screen.'
+    if stray:
+        return stray
+
+    existing_map = custom_fields_read_map(existing_item) if existing_item else {}
+    member_ids = set(project.memberships.values_list("user_id", flat=True))
+
+    errors = {}
+    for row in rows:
+        field = row.field
+        key = str(field.id)
+        value = payload[key] if key in payload else existing_map.get(key)
+
+        if is_blank_custom_value(field.field_type, value):
+            if row.required:
+                errors[key] = f'"{field.name}" is required.'
+            continue
+
+        option_ids = set(field.options.values_list("id", flat=True)) if field.has_options else set()
+        message = field_value_error(field, value, option_ids, member_ids)
+        if message:
+            errors[key] = message
+
+    return errors or None
+
+
+def apply_custom_fields(work_item, payload):
+    """Upsert-by-replacement: every field named in the payload loses all of
+    its existing rows first, then gets the new one (or several, for
+    multiselect). A blank value clears the field. Mirrors
+    design/js/store.js's applyCustomFields exactly."""
+    for key, raw in (payload or {}).items():
+        try:
+            field = CustomField.objects.get(pk=int(key))
+        except (CustomField.DoesNotExist, TypeError, ValueError):
+            continue
+        WorkItemFieldValue.objects.filter(work_item=work_item, field=field).delete()
+        if is_blank_custom_value(field.field_type, raw):
+            continue
+        values = raw if field.field_type == CustomField.FieldType.MULTISELECT else [raw]
+        seen = set()
+        for v in values:
+            text = str(v)
+            if text in seen:
+                continue
+            seen.add(text)
+            WorkItemFieldValue.objects.create(work_item=work_item, field=field, value=text)
 
 
 @transaction.atomic
