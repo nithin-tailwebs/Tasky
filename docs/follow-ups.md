@@ -57,6 +57,74 @@ considered and consciously deferred. Recorded so the next two plans don't redisc
   delete, move, and comment call. Recorded here so it isn't rediscovered as a mystery bug —
   the fix belongs to whichever sub-project next touches the UI for hierarchy.
 
+## Carried out of the Custom Fields & Screens backend build (2026-08-18)
+
+Nothing here blocks the backend — each item was considered during the final whole-branch review
+and consciously deferred. The Critical (persisted-500-on-read) and Important findings from that
+review were fixed before merge; these are what's left.
+
+- **The `design/` Phase 1 prototype for this sub-project isn't committed anywhere yet.**
+  `boards/services.py` and `docs/api.md` both carry "mirrors `design/js/logic.js`/`store.js`
+  exactly" comments, but as of this backend build, `design/js/logic.js` and `design/js/store.js`
+  contain no custom-fields code at all in any committed branch — the prototype exists only as
+  uncommitted changes in the main checkout (it was signed off in chat the same day this plan was
+  written). Merging this backend alone lands those "mirrors exactly" comments as unverifiable,
+  dangling claims until the design commits land too. Confirm the design/ commits merge before or
+  alongside this branch.
+- **Stale docstrings in the early tasks' own tests.** `test_custom_fields_api.py` and
+  `test_screens_api.py` each have a test whose docstring says "this task's `perform_destroy` has
+  no in-use guard yet" — true when written (Tasks 1 and 2 deliberately shipped a guard-less
+  `perform_destroy`, replaced by a later task once the model it needed to check existed), false
+  by the time the branch merged (both guards are in place). Harmless, but confusing to a future
+  reader who doesn't know the history.
+- **`_reposition` (on `FieldOptionViewSet` and `ScreenFieldViewSet`) saves before validating
+  `position`.** `perform_update()` calls `serializer.save()` first, then `_reposition()` second —
+  a `PATCH {"required": true, "position": "abc"}` persists the `required` change and only then
+  400s on the bad `position`. No test currently sends both fields in one request, so this hasn't
+  surfaced. Fix if it matters: validate `position` before `serializer.save()`, or wrap
+  `perform_update` in `transaction.atomic`.
+- **A non-conforming `multiselect`/`checkbox` value silently clears the field instead of 400ing.**
+  `is_blank_custom_value` treats any non-list as blank for multiselect and anything that isn't
+  literally `True` as blank for checkbox — so `{"7": 5}` against an *optional* multiselect field
+  validates as "blank" and silently deletes any existing value instead of being rejected. This
+  cuts against the reject-rather-than-silently-drop convention the spec itself cites for other
+  cases. Only reachable for optional fields (a required field would correctly 400 as missing).
+- **Multiselect read order isn't guaranteed.** `WorkItemFieldValue` has no `Meta.ordering` and
+  `custom_fields_read_map` doesn't sort, so a multiselect's array order in `custom_fields` can
+  vary between reads even though `FieldOption.position` exists precisely to give options a
+  stable order.
+- **`CustomField`/`Screen`/their nested endpoints are readable by any authenticated user,
+  regardless of project membership.** This is a deliberate plan decision (there's no project to
+  scope a genuinely global resource to), not an oversight — but it's a documented divergence from
+  the spec's general "non-member touches any field/screen endpoint → 403" error-table line, and it
+  means a user who belongs to zero projects can still enumerate every custom field and screen name
+  in the system. Worth an explicit product call before this matters (e.g. once fields start naming
+  anything sensitive).
+- **Coverage gaps left from individual task reviews**, all Minor and none blocking: no test for
+  unauthenticated access to the nested `/api/fields/{id}/options/...` or
+  `/api/screens/{id}/fields/...` routes; no test for a non-owner's PATCH/DELETE on
+  `/api/screens/{id}/` itself; no test for a genuinely-missing project id 404ing on
+  `/api/projects/{id}/screen-assignments/`; the spec's "a field/screen created by Project A's
+  Owner is usable by Project B's *different* Owner" scenario is only tested with the same user
+  owning both projects.
+- **`PUT /api/projects/{id}/screen-assignments/` is a partial merge, not a full replace.** Only
+  the item types present in the request body are touched; item types the body omits keep their
+  existing assignment. `docs/api.md` documents this honestly, but it's worth flagging since "PUT"
+  conventionally implies a full replace and the spec's `{epic, story, task, bug, subtask}` shape
+  reads that way too. Deliberate choice (a client wanting to clear one assignment shouldn't have
+  to resend all five) — not a bug.
+- **`CustomFieldViewSet`'s queryset doesn't `select_related("created_by")`**, unlike
+  `ScreenViewSet`'s three-levels-deep prefetch — `GET /api/fields/` costs one extra query per
+  field to resolve `created_by`'s nested `UserSerializer`. Minor, `/api/fields/` is a small,
+  infrequently-listed resource.
+- **`POST`/`PATCH` on a single work item costs 1+N queries to build `custom_fields`** (N = that
+  item's custom field count) when no prefetch cache is present on the instance — a side effect of
+  the fix for the list-view N+1 regression above (the same read function now relies on a prefetch
+  cache that only the three list/detail *querysets* populate, not a freshly-created or
+  freshly-`.get_object()`'d single instance). Bounded by one item's field count, not list size, so
+  it's a much smaller version of the problem it fixed — not worth its own fix unless work items
+  routinely carry many custom fields.
+
 ## Local development note
 
 This machine's `.env` uses `MYSQL_PORT=3307` because a second MySQL occupies 3306. `.env.example`
