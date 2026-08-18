@@ -141,10 +141,17 @@ The existing `/api/work-items/` and `/api/work-items/{id}/` endpoints carry an a
 
 **Read** (`GET /api/work-items/` or `GET /api/work-items/{id}/`): `custom_fields` is a dict keyed by custom field id (as a string, matching JSON object key semantics) to field values. The value shape depends on field type: `text`, `number`, `link`, and `date` are strings; `checkbox` is boolean; `select` and `user_picker` are integers; `multiselect` is an array of integers.
 
-**Write** (`POST /api/work-items/` or `PATCH /api/work-items/{id}/`): `custom_fields` is write-only, and accepts the same dict shape as the read format. Values are never trusted as already the right type — every value is coerced and checked server-side against the field's `field_type`. A write fails with 400 (`{"custom_fields": <message>}`) if:
-- No screen is assigned to this item type in the item's project: "X items in this project have no screen assigned, so custom fields can't be set on them."
-- The payload references a field not on the assigned screen: `{<field_id>: "This field isn't on the X screen."}`
-- A required field is missing, or a value fails type checking: `{<field_id>: "This field is required."} / {<field_id>: "Must be a valid X."}`
+**Write** (`POST /api/work-items/` or `PATCH /api/work-items/{id}/`): `custom_fields` is write-only, and accepts the same dict shape as the read format. Values are never trusted as already the right type — every value is coerced and checked server-side against the field's `field_type`. A write fails with 400 (`{"custom_fields": <message>}`) in these cases:
+- No screen is assigned to this item type in the item's project: `"Story items in this project have no screen assigned, so custom fields can't be set on them."`
+- The payload references a field not on the assigned screen (field id present but not on screen): `{<field_id>: "\"Story Points\" isn't on the \"Create\" screen."}`
+- A required field is missing: `{<field_id>: "\"Story Points\" is required."}`
+- A value fails type checking (exact message depends on field type):
+  - Text longer than 255 chars: `{<field_id>: "\"Description\" must be 255 characters or fewer."}`
+  - Non-numeric value for number field: `{<field_id>: "\"Hours\" must be a number."}`
+  - Invalid date format: `{<field_id>: "\"Start Date\" must be a date (YYYY-MM-DD)."}`
+  - Invalid select option: `{<field_id>: "\"Severity\" must be one of its current options."}`
+  - Invalid multiselect option: `{<field_id>: "\"Tags\" must only use its current options."}`
+  - Invalid user for user_picker: `{<field_id>: "\"Assignee\" must be a member of this project."}`
 
 ## Work Item Links
 | Method | Path | Notes |
