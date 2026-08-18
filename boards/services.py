@@ -116,20 +116,40 @@ def custom_fields_read_map(work_item):
     """Every saved value for this work item, keyed by field id (as a
     string, matching JSON object key semantics) — regardless of whether
     its field is still on the currently-assigned screen. Mirrors
-    design/js/store.js's customFieldsOf's `map` half exactly."""
+    design/js/store.js's customFieldsOf's `map` half exactly.
+
+    Uses `.all()` on the related manager (not `.select_related("field")`,
+    which would build a fresh queryset and bypass any `prefetch_related`
+    the caller already did) so callers can prefetch `field_values__field`
+    on their queryset and avoid an N+1 here.
+
+    Defensive against garbage/legacy rows: a value that fails to coerce
+    (e.g. a hand-edited or corrupted `select`/`multiselect`/`user_picker`
+    row that isn't a clean integer) is skipped rather than raising — one
+    bad field should not make the whole work item unreadable.
+    """
     values_by_field = {}
-    for value in work_item.field_values.select_related("field"):
+    for value in work_item.field_values.all():
         values_by_field.setdefault(value.field, []).append(value)
 
     result = {}
     for field, rows in values_by_field.items():
         key = str(field.id)
         if field.field_type == CustomField.FieldType.MULTISELECT:
-            result[key] = [int(row.value) for row in rows]
+            ints = []
+            for row in rows:
+                try:
+                    ints.append(int(row.value))
+                except (TypeError, ValueError):
+                    continue
+            result[key] = ints
         elif field.field_type == CustomField.FieldType.CHECKBOX:
             result[key] = True
         elif field.field_type in (CustomField.FieldType.SELECT, CustomField.FieldType.USER_PICKER):
-            result[key] = int(rows[0].value)
+            try:
+                result[key] = int(rows[0].value)
+            except (TypeError, ValueError):
+                continue
         else:
             result[key] = rows[0].value
     return result
@@ -190,11 +210,43 @@ def custom_fields_write_error(project, item_type, payload, existing_item=None):
     return errors or None
 
 
+_ID_FIELD_TYPES = (CustomField.FieldType.SELECT, CustomField.FieldType.MULTISELECT, CustomField.FieldType.USER_PICKER)
+
+
+def _canonicalize_custom_value(field_type, v):
+    """The string actually stored for one value. `select`/`multiselect`/
+    `user_picker` store a `FieldOption`/user id, so canonicalize to
+    `str(int(v))` rather than `str(v)` — that normalizes JSON-float
+    (`12.0`) and bool (`True`) input, which `field_value_error`'s
+    `int(value) in option_ids` check accepts, to the same canonical
+    integer string (`"12"`, `"1"`) an already-clean int would produce.
+    Without this, a validated-but-uncanonicalized value like `"12.0"`
+    gets persisted verbatim and then crashes every later read, since
+    `custom_fields_read_map` calls `int()` on the stored string.
+
+    Falls back to the raw `str(v)` if `int(v)` fails — this function is
+    only ever reached after `custom_fields_write_error` has already
+    proven `int(v)` succeeds, but stays defensive in case
+    `apply_custom_fields` is ever called from a path that skips
+    validation."""
+    if field_type in _ID_FIELD_TYPES:
+        try:
+            return str(int(v))
+        except (TypeError, ValueError):
+            pass
+    return str(v)
+
+
+@transaction.atomic
 def apply_custom_fields(work_item, payload):
     """Upsert-by-replacement: every field named in the payload loses all of
     its existing rows first, then gets the new one (or several, for
     multiselect). A blank value clears the field. Mirrors
-    design/js/store.js's applyCustomFields exactly."""
+    design/js/store.js's applyCustomFields exactly.
+
+    Runs inside one transaction (delete-then-insert for every field named
+    in the payload) so a failure partway through never leaves a field's
+    old rows deleted without their replacement written."""
     for key, raw in (payload or {}).items():
         try:
             field = CustomField.objects.get(pk=int(key))
@@ -206,7 +258,7 @@ def apply_custom_fields(work_item, payload):
         values = raw if field.field_type == CustomField.FieldType.MULTISELECT else [raw]
         seen = set()
         for v in values:
-            text = str(v)
+            text = _canonicalize_custom_value(field.field_type, v)
             if text in seen:
                 continue
             seen.add(text)

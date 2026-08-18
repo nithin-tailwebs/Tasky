@@ -34,6 +34,7 @@ class CustomFieldAdmin(admin.ModelAdmin):
     list_filter = ["field_type"]
     search_fields = ["name"]
     inlines = [FieldOptionInline]
+    readonly_fields = ["field_type"]
 
 
 class ScreenFieldInline(admin.TabularInline):

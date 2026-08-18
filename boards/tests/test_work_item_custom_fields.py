@@ -370,6 +370,53 @@ def test_deleting_an_option_still_used_by_a_work_item_value_is_rejected(auth_cli
 
 
 @pytest.mark.django_db
+def test_select_value_submitted_as_a_json_float_is_canonicalized_and_round_trips(
+    auth_client, board, screen_with_all_types
+):
+    """A JSON float like 12.0 passes `field_value_error`'s `int(value) in
+    option_ids` check, so it must be canonicalized to a plain integer
+    string before it's stored — otherwise it round-trips as "12.0" and
+    crashes every later GET (custom_fields_read_map's bare int())."""
+    fields = screen_with_all_types
+    option = fields["select"].options.get(label="High")
+    payload = {str(fields["text_short"].id): "ok", str(fields["select"].id): float(option.id)}
+    response = auth_client.post(
+        "/api/work-items/",
+        {"board": board.id, "item_type": "task", "title": "X", "custom_fields": payload},
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+    item_id = response.json()["id"]
+    assert response.json()["custom_fields"][str(fields["select"].id)] == option.id
+
+    stored = WorkItemFieldValue.objects.get(work_item_id=item_id, field=fields["select"])
+    assert stored.value == str(option.id)
+
+    get_response = auth_client.get(f"/api/work-items/{item_id}/")
+    assert get_response.status_code == 200
+    assert get_response.json()["custom_fields"][str(fields["select"].id)] == option.id
+
+
+@pytest.mark.django_db
+def test_a_garbage_stored_field_value_is_skipped_on_read_instead_of_crashing(
+    auth_client, board, screen_with_all_types
+):
+    """A hand-inserted row that bypasses apply_custom_fields (e.g. a
+    legacy/corrupted value) must not take down the whole work item's GET —
+    it should just be missing from custom_fields."""
+    fields = screen_with_all_types
+    item = WorkItem.objects.create(board=board, item_type="task", title="X")
+    WorkItemFieldValue.objects.create(work_item=item, field=fields["select"], value="not-a-number")
+    WorkItemFieldValue.objects.create(work_item=item, field=fields["text_short"], value="fine")
+
+    response = auth_client.get(f"/api/work-items/{item.id}/")
+    assert response.status_code == 200
+    custom_fields = response.json()["custom_fields"]
+    assert str(fields["select"].id) not in custom_fields
+    assert custom_fields[str(fields["text_short"].id)] == "fine"
+
+
+@pytest.mark.django_db
 def test_the_database_rejects_a_duplicate_work_item_field_value(board):
     """apply_custom_fields() de-dupes in Python before insert, so the
     normal API path never actually attempts a duplicate row — it never

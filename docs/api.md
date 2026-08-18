@@ -106,7 +106,7 @@ Any project member can apply an existing component to a work item via `PATCH /ap
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/fields/` | all custom fields in the system; unpaginated |
-| POST | `/api/fields/` | `{name, field_type}`; `field_type` is one of `text`, `number`, `checkbox`, `select`, `multiselect`, `user_picker`, `date`, `link`; Creator must be an Owner of at least one project; 400 if `name` already exists (case-insensitive) |
+| POST | `/api/fields/` | `{name, field_type}`; `field_type` is one of `text_short`, `text_long`, `number`, `date`, `select`, `multiselect`, `checkbox`, `user_picker`; Creator must be an Owner of at least one project; 400 if `name` already exists (case-insensitive) |
 | GET/PATCH/DELETE | `/api/fields/{id}/` | PATCH only on `name`; `field_type` is immutable, 400 if attempting to change it; DELETE rejected with 400 if the field is still assigned to any screen |
 
 ## Field Options
@@ -139,7 +139,7 @@ Responses carry a `fields` array of nested screen field objects, each with `{id,
 ## Work Items — `custom_fields`
 The existing `/api/work-items/` and `/api/work-items/{id}/` endpoints carry an additional `custom_fields` field:
 
-**Read** (`GET /api/work-items/` or `GET /api/work-items/{id}/`): `custom_fields` is a dict keyed by custom field id (as a string, matching JSON object key semantics) to field values. The value shape depends on field type: `text`, `number`, `link`, and `date` are strings; `checkbox` is boolean; `select` and `user_picker` are integers; `multiselect` is an array of integers.
+**Read** (`GET /api/work-items/` or `GET /api/work-items/{id}/`): `custom_fields` is a dict keyed by custom field id (as a string, matching JSON object key semantics) to field values. The value shape depends on field type: `text_short`, `text_long`, `number`, and `date` are strings; `checkbox` is boolean; `select` and `user_picker` are integers; `multiselect` is an array of integers.
 
 **Write** (`POST /api/work-items/` or `PATCH /api/work-items/{id}/`): `custom_fields` is write-only, and accepts the same dict shape as the read format. Values are never trusted as already the right type — every value is coerced and checked server-side against the field's `field_type`. A write fails with 400 (`{"custom_fields": <message>}`) in these cases:
 - No screen is assigned to this item type in the item's project: `"Story items in this project have no screen assigned, so custom fields can't be set on them."`
