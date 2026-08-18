@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Comment, Component, WorkItem, WorkItemLink
+from .models import Board, Comment, Component, CustomField, FieldOption, WorkItem, WorkItemLink
 
 VALID_PARENT_TYPES = {
     WorkItem.ItemType.EPIC: [],
@@ -33,6 +33,12 @@ def can_manage_components(role):
     return role in ("owner", "admin")
 
 
+def user_can_manage_definitions(user):
+    from projects.models import ProjectMembership
+
+    return ProjectMembership.objects.filter(user=user, role="owner").exists()
+
+
 class BoardSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(read_only=True)
 
@@ -57,6 +63,40 @@ class ComponentSerializer(serializers.ModelSerializer):
         if not value.strip():
             raise serializers.ValidationError("This field may not be blank.")
         return value.strip()
+
+
+class FieldOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FieldOption
+        fields = ["id", "field", "label", "position"]
+        read_only_fields = ["field", "position"]
+
+    def validate_label(self, value):
+        clean = value.strip()
+        if not clean:
+            raise serializers.ValidationError("This field may not be blank.")
+        return clean
+
+
+class CustomFieldSerializer(serializers.ModelSerializer):
+    options = FieldOptionSerializer(many=True, read_only=True)
+    created_by = UserSerializer(read_only=True)
+
+    class Meta:
+        model = CustomField
+        fields = ["id", "name", "field_type", "options", "created_by", "created_at"]
+        read_only_fields = ["created_by", "created_at"]
+
+    def validate_name(self, value):
+        clean = value.strip()
+        if not clean:
+            raise serializers.ValidationError("This field may not be blank.")
+        qs = CustomField.objects.filter(name__iexact=clean)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(f'"{clean}" already exists.')
+        return clean
 
 
 class WorkItemSummarySerializer(serializers.ModelSerializer):

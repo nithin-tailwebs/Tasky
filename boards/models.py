@@ -126,6 +126,55 @@ class Component(models.Model):
         return f"{self.name} ({self.project})"
 
 
+class CustomField(models.Model):
+    class FieldType(models.TextChoices):
+        TEXT_SHORT = "text_short", "Short text"
+        TEXT_LONG = "text_long", "Long text"
+        NUMBER = "number", "Number"
+        DATE = "date", "Date"
+        SELECT = "select", "Select"
+        MULTISELECT = "multiselect", "Multi-select"
+        CHECKBOX = "checkbox", "Checkbox"
+        USER_PICKER = "user_picker", "User picker"
+
+    OPTION_TYPES = (FieldType.SELECT, FieldType.MULTISELECT)
+
+    name = models.CharField(max_length=80, unique=True)
+    field_type = models.CharField(max_length=20, choices=FieldType.choices)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="custom_fields_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def has_options(self) -> bool:
+        return self.field_type in self.OPTION_TYPES
+
+
+class FieldOption(models.Model):
+    field = models.ForeignKey(CustomField, on_delete=models.CASCADE, related_name="options")
+    label = models.CharField(max_length=120)
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["field", "label"], name="unique_option_label_per_field"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.field})"
+
+
 class WorkItemLink(models.Model):
     """Symmetric — there is no "from"/"to" direction. item_a always holds
     the lower id, so (A, B) and (B, A) are the same row; enforced by the

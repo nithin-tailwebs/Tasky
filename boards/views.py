@@ -10,16 +10,19 @@ from rest_framework.response import Response
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Comment, Component, WorkItem, WorkItemLink
+from .models import Board, Comment, Component, CustomField, FieldOption, WorkItem, WorkItemLink
 from .serializers import (
     BoardSerializer,
     CommentSerializer,
     ComponentSerializer,
+    CustomFieldSerializer,
+    FieldOptionSerializer,
     MoveWorkItemSerializer,
     WorkItemLinkSerializer,
     WorkItemSerializer,
     WorkItemSummarySerializer,
     can_manage_components,
+    user_can_manage_definitions,
 )
 from .services import move_work_item, next_position
 
@@ -316,3 +319,116 @@ class ComponentViewSet(viewsets.ModelViewSet):
         if not can_manage_components(role):
             raise PermissionDenied("You don't have permission to manage components.")
         instance.delete()
+
+
+class CustomFieldViewSet(viewsets.ModelViewSet):
+    http_method_names = ["get", "post", "patch", "delete"]
+    serializer_class = CustomFieldSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    queryset = CustomField.objects.prefetch_related("options").all()
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if "field_type" in request.data and request.data["field_type"] != instance.field_type:
+            raise ValidationError({"field_type": "A field's type can't be changed after it's created."})
+        return super().update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # This is deliberately unguarded — `ScreenField` doesn't exist until
+        # Task 2, so there's nothing to check a field's usage against yet.
+        # Task 2 replaces this method with the real "still on a screen"
+        # guard once `ScreenField` exists.
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        instance.delete()
+
+
+class FieldOptionViewSet(viewsets.ModelViewSet):
+    http_method_names = ["post", "patch", "delete"]
+    serializer_class = FieldOptionSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_field(self):
+        return get_object_or_404(CustomField, pk=self.kwargs["field_pk"])
+
+    def get_queryset(self):
+        return FieldOption.objects.filter(field_id=self.kwargs["field_pk"])
+
+    def perform_create(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        field = self.get_field()
+        if not field.has_options:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f'Only Select and Multi-select fields have options — '
+                        f'"{field.name}" is a {field.get_field_type_display()}.'
+                    )
+                }
+            )
+        label = serializer.validated_data["label"]
+        if FieldOption.objects.filter(field=field, label__iexact=label).exists():
+            raise ValidationError({"label": f'"{label}" is already an option.'})
+        position = FieldOption.objects.filter(field=field).count()
+        serializer.save(field=field, position=position)
+
+    def perform_update(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        instance = serializer.instance
+        label = serializer.validated_data.get("label")
+        if label and FieldOption.objects.filter(field=instance.field, label__iexact=label).exclude(pk=instance.pk).exists():
+            raise ValidationError({"label": f'"{label}" is already an option.'})
+        serializer.save()
+        if "position" in self.request.data:
+            self._reposition(instance)
+
+    def _reposition(self, instance):
+        target = max(0, int(self.request.data["position"]))
+        siblings = list(FieldOption.objects.filter(field=instance.field).exclude(pk=instance.pk).order_by("position", "id"))
+        target = min(target, len(siblings))
+        siblings.insert(target, instance)
+        for index, option in enumerate(siblings):
+            if option.position != index:
+                option.position = index
+                option.save(update_fields=["position"])
+
+    def perform_destroy(self, instance):
+        # Unguarded for the same reason CustomFieldViewSet's was in this
+        # same task: WorkItemFieldValue doesn't exist until Task 4, so
+        # there's nothing to check an option's usage against yet. Task 4
+        # replaces this method with the real "still chosen" guard.
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        field = instance.field
+        instance.delete()
+        siblings = list(FieldOption.objects.filter(field=field).order_by("position", "id"))
+        for index, option in enumerate(siblings):
+            if option.position != index:
+                option.position = index
+                option.save(update_fields=["position"])
