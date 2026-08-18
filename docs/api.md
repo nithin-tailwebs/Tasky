@@ -12,6 +12,8 @@ to branch on 403-for-anonymous, not 401.
 Any unsafe request (POST, PATCH, DELETE) must carry an `X-CSRFToken` header whose value
 is the `csrftoken` cookie. Call `GET /api/auth/csrf/` once on app load to be handed one.
 
+**`custom_fields` values are never trusted as already the right type — every value is coerced and checked server-side against the field's `field_type`, exactly mirroring `design/js/logic.js`'s `fieldValueError`.**
+
 ## Auth
 | Method | Path | Body | Returns |
 |---|---|---|---|
@@ -99,6 +101,50 @@ Work item responses also carry read-only extras beyond the writable fields above
 | PATCH/DELETE | `/api/projects/{id}/components/{id}/` | Owner/Admin only |
 
 Any project member can apply an existing component to a work item via `PATCH /api/work-items/{id}/ {"components": [...]}"` — a component from a different project than the work item's is rejected with `400`.
+
+## Custom Fields
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/fields/` | all custom fields in the system; unpaginated |
+| POST | `/api/fields/` | `{name, field_type}`; `field_type` is one of `text`, `number`, `checkbox`, `select`, `multiselect`, `user_picker`, `date`, `link`; Creator must be an Owner of at least one project; 400 if `name` already exists (case-insensitive) |
+| GET/PATCH/DELETE | `/api/fields/{id}/` | PATCH only on `name`; `field_type` is immutable, 400 if attempting to change it; DELETE rejected with 400 if the field is still assigned to any screen |
+
+## Field Options
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/fields/{field_pk}/options/` | `{label}`; only valid for `select` and `multiselect` fields, 400 otherwise; 400 if `label` already exists for this field (case-insensitive); caller must be a project Owner |
+| PATCH/DELETE | `/api/fields/{field_pk}/options/{id}/` | PATCH accepts `{label, position}`; position reordering cascades to siblings; DELETE rejected with 400 if the option is still chosen on any work item |
+
+## Screens
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/screens/` | all screens in the system; unpaginated |
+| POST | `/api/screens/` | `{name}`; Creator must be an Owner of at least one project; 400 if `name` already exists (case-insensitive) |
+| GET/PATCH/DELETE | `/api/screens/{id}/` | PATCH only on `name`; DELETE rejected with 400 if the screen is still assigned to any (project, item_type) pair |
+
+Responses carry a `fields` array of nested screen field objects, each with `{id, field, field_detail, position, required}`. `field_detail` is the full `CustomField` object; `field` is just the id.
+
+## Screen Fields
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/screens/{screen_pk}/fields/` | `{field, required}`; assigns a custom field to this screen; `field` must be a `CustomField` id; 400 if the field is already on this screen; caller must be a project Owner |
+| PATCH/DELETE | `/api/screens/{screen_pk}/fields/{id}/` | PATCH accepts `{required, position}`; position reordering cascades to siblings; DELETE removes the field from this screen (does not delete the `CustomField` itself) |
+
+## Screen Assignments
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/projects/{id}/screen-assignments/` | maps each of this project's five item types (`epic`, `story`, `task`, `bug`, `subtask`) to its assigned screen id, or `null` if unassigned; any project member can read |
+| PUT | `/api/projects/{id}/screen-assignments/` | body is `{epic: <screen id or null>, story: ..., task: ..., bug: ..., subtask: ...}`; updates any item_type present; 400 if screen id doesn't exist; Owner/Admin only |
+
+## Work Items — `custom_fields`
+The existing `/api/work-items/` and `/api/work-items/{id}/` endpoints carry an additional `custom_fields` field:
+
+**Read** (`GET /api/work-items/` or `GET /api/work-items/{id}/`): `custom_fields` is a dict keyed by custom field id (as a string, matching JSON object key semantics) to field values. The value shape depends on field type: `text`, `number`, `link`, and `date` are strings; `checkbox` is boolean; `select` and `user_picker` are integers; `multiselect` is an array of integers.
+
+**Write** (`POST /api/work-items/` or `PATCH /api/work-items/{id}/`): `custom_fields` is write-only, and accepts the same dict shape as the read format. Values are never trusted as already the right type — every value is coerced and checked server-side against the field's `field_type`. A write fails with 400 (`{"custom_fields": <message>}`) if:
+- No screen is assigned to this item type in the item's project: "X items in this project have no screen assigned, so custom fields can't be set on them."
+- The payload references a field not on the assigned screen: `{<field_id>: "This field isn't on the X screen."}`
+- A required field is missing, or a value fails type checking: `{<field_id>: "This field is required."} / {<field_id>: "Must be a valid X."}`
 
 ## Work Item Links
 | Method | Path | Notes |

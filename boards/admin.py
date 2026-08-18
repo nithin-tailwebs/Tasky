@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Board, Comment, WorkItem
+from .models import Board, Comment, CustomField, FieldOption, ProjectScreenAssignment, Screen, ScreenField, WorkItem, WorkItemFieldValue
 
 
 @admin.register(Board)
@@ -21,3 +21,40 @@ class WorkItemAdmin(admin.ModelAdmin):
 class CommentAdmin(admin.ModelAdmin):
     list_display = ["card", "author", "created_at"]
     search_fields = ["body"]
+
+
+class FieldOptionInline(admin.TabularInline):
+    model = FieldOption
+    extra = 0
+
+
+@admin.register(CustomField)
+class CustomFieldAdmin(admin.ModelAdmin):
+    list_display = ["name", "field_type", "created_by", "created_at"]
+    list_filter = ["field_type"]
+    search_fields = ["name"]
+    inlines = [FieldOptionInline]
+
+
+class ScreenFieldInline(admin.TabularInline):
+    model = ScreenField
+    extra = 0
+
+
+@admin.register(Screen)
+class ScreenAdmin(admin.ModelAdmin):
+    list_display = ["name"]
+    search_fields = ["name"]
+    inlines = [ScreenFieldInline]
+
+
+@admin.register(ProjectScreenAssignment)
+class ProjectScreenAssignmentAdmin(admin.ModelAdmin):
+    list_display = ["project", "item_type", "screen"]
+    list_filter = ["item_type"]
+
+
+@admin.register(WorkItemFieldValue)
+class WorkItemFieldValueAdmin(admin.ModelAdmin):
+    list_display = ["work_item", "field", "value"]
+    list_filter = ["field"]
