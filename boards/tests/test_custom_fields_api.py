@@ -153,3 +153,18 @@ def test_deleting_an_unused_option_renumbers_the_rest(auth_client, project):
     mid.refresh_from_db()
     high.refresh_from_db()
     assert (mid.position, high.position) == (0, 1)
+
+
+@pytest.mark.django_db
+def test_non_numeric_position_on_reorder_is_rejected(auth_client, project):
+    field = CustomField.objects.create(name="Severity", field_type="select", created_by=None)
+    option = FieldOption.objects.create(field=field, label="High", position=0)
+    original_position = option.position
+
+    response = auth_client.patch(
+        f"/api/fields/{field.id}/options/{option.id}/", {"position": "not-a-number"}, content_type="application/json"
+    )
+    assert response.status_code == 400
+    assert "position" in response.json()
+    option.refresh_from_db()
+    assert option.position == original_position

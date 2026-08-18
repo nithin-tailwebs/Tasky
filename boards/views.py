@@ -407,7 +407,10 @@ class FieldOptionViewSet(viewsets.ModelViewSet):
             self._reposition(instance)
 
     def _reposition(self, instance):
-        target = max(0, int(self.request.data["position"]))
+        try:
+            target = max(0, int(self.request.data["position"]))
+        except (TypeError, ValueError):
+            raise ValidationError({"position": "Must be a whole number."})
         siblings = list(FieldOption.objects.filter(field=instance.field).exclude(pk=instance.pk).order_by("position", "id"))
         target = min(target, len(siblings))
         siblings.insert(target, instance)
