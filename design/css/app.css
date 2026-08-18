@@ -609,12 +609,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .modal-actions .btn-danger { margin-left: auto; }
 
-.components-block, .children-block, .links-block {
+.custom-fields-block, .components-block, .children-block, .links-block {
   margin-top: 18px;
   border-top: 1px solid var(--rule);
   padding-top: 14px;
 }
-.components-block h2, .children-block h2, .links-block h2 {
+.custom-fields-block h2, .components-block h2, .children-block h2, .links-block h2 {
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: .12em;
@@ -623,6 +623,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
   font-weight: 400;
   margin: 0 0 10px;
 }
+
+.cf-orphan-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cf-orphan-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--sunk);
+  border-radius: var(--r);
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+.cf-orphan-list li span:first-child { color: var(--ink-3); }
 
 .chip-check-list { display: flex; flex-wrap: wrap; gap: 7px; }
 .chip-check {
@@ -672,6 +684,256 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .empty-inline { color: var(--ink-3); font-size: 12.5px; }
 
+/* Custom fields & screens (sub-project 2b) -------------------------------
+   Deliberately built from the pieces already here — the same row shell as
+   Components, the same pill geometry as the work item type badges, the same
+   chip-check as the components picker — so the admin screens read as part
+   of the app rather than a separate settings product. */
+
+.create-field, .create-screen { display: flex; gap: 8px; margin: 0 0 8px; }
+.create-field input, .create-screen input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 7px 10px;
+}
+.create-field select {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.hint { color: var(--ink-3); font-size: 12px; margin-bottom: 10px; }
+
+.locked-note {
+  color: var(--ink-2);
+  background: var(--sunk);
+  border-radius: var(--r);
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+}
+
+/* A neutral sibling of .type-badge: same pill, no work-item colour, because
+   a field's type isn't part of the Epic/Story/Task colour language. */
+.type-badge.ft { color: var(--ink-3); }
+
+.admin-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 7px; }
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  animation: row-in .22s cubic-bezier(.2, .8, .2, 1) both;
+  transition: border-color .12s ease;
+}
+.admin-row:hover { border-color: var(--rule-2); }
+.admin-row .name { font-weight: 500; }
+.admin-row .name[contenteditable] { border-radius: 2px; padding: 1px 4px; margin: -1px -4px; }
+.admin-row .name[contenteditable]:hover,
+.admin-row .name[contenteditable]:focus { background: var(--sunk); outline: none; }
+.admin-row .row-meta {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+.admin-row .actions { display: flex; align-items: center; gap: 6px; }
+.admin-row .btn { padding: 4px 9px; font-size: 12px; }
+
+/* Ordered lists a human hand-sorts: field options, and a screen's fields.
+   Same row, so "reorder" looks like one idea in two places. */
+.order-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sunk);
+  border-radius: var(--r);
+  padding: 6px 8px 6px 4px;
+  font-size: 12.5px;
+  animation: row-in .18s cubic-bezier(.2, .8, .2, 1) both;
+}
+.order-row .label { flex: 1; }
+.order-row .label[contenteditable] { border-radius: 2px; padding: 1px 4px; margin: -1px -4px; }
+.order-row .label[contenteditable]:hover,
+.order-row .label[contenteditable]:focus { background: var(--surface); outline: none; }
+.order-row .btn-danger { padding: 2px 8px; font-size: 11px; }
+
+.order-handle { display: flex; flex-direction: column; gap: 1px; }
+.icon-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-3);
+  border-radius: 2px;
+  line-height: 1;
+  padding: 0 4px;
+  font-size: 9px;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.icon-btn:hover:not([disabled]) { background: var(--surface); color: var(--ink); }
+.icon-btn[disabled] { opacity: .3; cursor: default; }
+
+.pos-index {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  width: 14px;
+  text-align: right;
+}
+
+/* "Required" is a per-screen fact, so it reads as a toggle on the screen's
+   row rather than as a property of the field itself. */
+.req-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+.req-toggle:hover { border-color: var(--ink-3); }
+.req-toggle.is-on { border-color: var(--accent); background: var(--accent-w); color: var(--accent); }
+.req-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.add-row { display: flex; gap: 8px; margin-top: 10px; }
+.add-row input, .add-row select {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 6px 9px;
+}
+
+/* Per-project screen assignment ------------------------------------------ */
+
+.assign-list { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 6px; }
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 9px 14px;
+  animation: row-in .22s cubic-bezier(.2, .8, .2, 1) both;
+  transition: border-color .12s ease;
+}
+.assign-row:hover { border-color: var(--rule-2); }
+.assign-row .type-badge { width: 66px; text-align: center; }
+.assign-row .assign-meta { color: var(--ink-3); font-size: 11px; flex: 1; }
+.assign-row .assign-value { font-weight: 500; }
+.assign-row .assign-value.is-none { font-weight: 400; color: var(--ink-3); }
+.assign-select {
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r);
+  padding: 5px 8px;
+  font-size: 12px;
+  min-width: 190px;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.assign-select:hover { border-color: var(--ink-3); background: var(--sunk); }
+.assign-select[disabled] { opacity: .6; cursor: default; }
+
+/* Custom fields on a work item -------------------------------------------- */
+
+.cf-block { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.cf-block h2 {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 400;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cf-block h2 .screen-tag { color: var(--accent); }
+
+.cf-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.cf-grid .cf-wide { grid-column: 1 / -1; }
+.cf-field { margin-bottom: 0; }
+
+.req {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: .07em;
+  color: var(--accent);
+  margin-left: 4px;
+}
+
+.field-error {
+  display: block;
+  color: var(--danger);
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.cf-field.has-error input,
+.cf-field.has-error textarea,
+.cf-field.has-error select { border-color: var(--danger); }
+
+/* Saved values whose field is no longer on the item type's screen. They
+   stay visible for good — read-only, and labelled so it's obvious why they
+   have no control next to them. */
+.orphan-note { color: var(--ink-3); font-size: 11.5px; margin-bottom: 8px; }
+
+.kv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.kv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--sunk);
+  border-radius: var(--r);
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+.kv-row .kv-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  min-width: 132px;
+}
+.kv-row .kv-val { flex: 1; }
+
+/* Screen fields inside the board's inline "add work item" form ------------ */
+
+.add-wi-form .cf-compact {
+  border-top: 1px dashed var(--rule-2);
+  margin-top: 2px;
+  padding-top: 7px;
+  display: grid;
+  gap: 6px;
+}
+.add-wi-form .cf-compact .field > span { margin-bottom: 3px; }
+.add-wi-form .cf-compact textarea { min-height: 46px; }
+.add-wi-form .cf-compact .chip-check { font-size: 11px; padding: 3px 8px; }
+
 /* Responsive ---------------------------------------------------------- */
 
 @media (max-width: 880px) {
@@ -681,6 +943,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .create-project .key-input { width: 100%; }
   .columns { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr; }
+  .cf-grid { grid-template-columns: 1fr; }
+  .create-field { flex-direction: column; }
+  .admin-row { flex-wrap: wrap; }
+  .admin-row .row-meta { margin-left: 0; text-align: left; }
+  .assign-row { flex-wrap: wrap; }
+  .assign-select { min-width: 0; width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -12,13 +12,14 @@ prototype of the whole product, not a one-off mockup.
 | Sub-project | Spec | Status |
 |---|---|---|
 | 1 — Projects & Membership | `../docs/superpowers/specs/2026-08-13-tasky-projects-membership-design.md` | Signed off, **shipped to production** (`../ui/`, `../projects/`) |
-| 2a — Work Item Hierarchy | `../docs/superpowers/specs/2026-08-14-tasky-work-item-hierarchy-design.md` | **Prototype below — awaiting sign-off** |
+| 2a — Work Item Hierarchy | `../docs/superpowers/specs/2026-08-14-tasky-work-item-hierarchy-design.md` | Signed off, **shipped to production** (`boards/models.py`, `../ui/`) |
+| 2b — Custom Fields & Screens | `../docs/superpowers/specs/2026-08-18-tasky-custom-fields-screens-design.md` | **Prototype below — awaiting sign-off** |
 
-Because sub-project 1 already shipped, this prototype's Projects &
-Membership screens are now mostly a faithful *replica* of what's live in
-`../ui/` — they exist here so sub-project 2a's new screens (Boards, work
-items) have somewhere real to hang off, not because that part still needs
-review.
+Because sub-projects 1 and 2a already shipped, this prototype's Projects &
+Membership and Board/work-item screens are now mostly a faithful *replica*
+of what's live in `../ui/` — they exist here so sub-project 2b's new
+screens (Fields, Screens, custom field inputs on a work item) have
+somewhere real to hang off, not because that part still needs review.
 
 ## Run it
 
@@ -59,6 +60,29 @@ Sign in as `asha`, `kabir` or `lena` — any password works.
    Membership flows from an Owner/Admin/Member angle other than Asha's —
    unchanged from sub-project 1's prototype, now shipped in `../ui/`.
 
+## Sub-project 2b — Custom Fields & Screens
+
+7. **Open Fields (top nav).** Only Owners of some project can manage
+   these (Asha qualifies). Add a field of each type — try a Select or
+   Multi-select and add a couple of options to it. Try changing a field's
+   type after creation — it's blocked, per spec. Try deleting a field
+   that's on a Screen — also blocked, until you remove it from the
+   Screen first.
+8. **Open Screens.** Create a screen, add a few of the fields you just
+   made to it, reorder them, and toggle "required" on one.
+9. **Back on the Tasky Redesign project page**, under "Field screens",
+   point one or two item types (e.g. Task) at the screen you built. Try
+   "None" — that item type goes back to built-in fields only.
+10. **Open the Sprint Board and add or open a Task.** The screen's custom
+    fields now render in the create form and the detail modal, in the
+    screen's order, with the required ones marked. Leave a required one
+    blank and save — the error lands under that specific field. Save
+    successfully, then reopen the item to see the value persisted.
+11. **Reassign that item type to a different screen (or "None")** back on
+    the project page, then reopen the same work item — its old field's
+    saved value still shows, under "Other saved values", read-only, per
+    the spec's "orphaned values stay visible" rule.
+
 All state is in memory — refreshing the page resets it to the seed above.
 
 ## Files
@@ -71,16 +95,15 @@ All state is in memory — refreshing the page resets it to the seed above.
 | `js/store.js` | Mock data source. Enforces the same rules a real API would (see each spec's error table) |
 | `js/app.js` | Views, hash routing, modals, and the interaction polish (skeleton loading, staggered row entrances, animated modal/toast lifecycle) |
 
-## What to check when reviewing sub-project 2a
+## What to check when reviewing sub-project 2b
 
-- Does the Epic → (Story/Task/Bug) → Subtask hierarchy match how you'd
-  actually plan work, or does it feel too rigid / too loose?
-- Is a work item's key (`TASKY-123`) prominent enough on the card, or
-  does it need to be more or less visible?
-- Is "Components" pulling its weight as a second tagging system next to
-  Labels (sub-project 4, not built yet), or does it feel redundant once
-  you're clicking it rather than reading about it?
-- Does "relates to" as the only link type feel sufficient, or did you
-  immediately want "blocks" while using it?
+- Is one screen per item type (not separate create/edit/view screens)
+  enough, or did you want the create form and the detail view to differ?
+- Is "None" (built-in fields only) a good default for an item type with
+  no screen assigned, or should new projects require picking one?
+- Does "orphaned values stay visible, read-only, once a field drops off
+  the screen" match what you'd expect, or is that surprising/unwanted?
+- Are 8 field types the right set, or is something obviously missing
+  (e.g. a URL type) before this goes to backend?
 - Anything from the spec's data model or flows that reads wrong once
   you're actually clicking it, rather than reading it.

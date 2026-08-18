@@ -1,7 +1,10 @@
-/* Tasky — Projects & Membership + Work Item Hierarchy prototype.
-   Pure role-permission and hierarchy rules, no DOM, no network — mirrors
-   the matrices in docs/superpowers/specs/2026-08-13-...-membership-design.md
-   and docs/superpowers/specs/2026-08-14-...-work-item-hierarchy-design.md
+/* Tasky — Projects & Membership + Work Item Hierarchy + Custom Fields
+   & Screens prototype.
+   Pure role-permission, hierarchy and field-validation rules; no DOM, no
+   network — mirrors the matrices in
+   docs/superpowers/specs/2026-08-13-...-membership-design.md,
+   docs/superpowers/specs/2026-08-14-...-work-item-hierarchy-design.md and
+   docs/superpowers/specs/2026-08-18-...-custom-fields-screens-design.md
    exactly, so this file IS those specs' rule tables, executable. */
 
 const Logic = (() => {
@@ -47,6 +50,132 @@ const Logic = (() => {
   const STATUSES = ['todo', 'in_progress', 'done'];
   const STATUS_LABELS = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
 
+  /* ---- Custom fields & screens (sub-project 2b) ------------------------ */
+
+  // The spec's fixed set. No custom types, and a field's type is immutable
+  // once created, so this list is only ever consulted at creation time.
+  const FIELD_TYPES = [
+    'text_short', 'text_long', 'number', 'date',
+    'select', 'multiselect', 'checkbox', 'user_picker',
+  ];
+  const FIELD_TYPE_LABEL = {
+    text_short: 'Short text',
+    text_long: 'Long text',
+    number: 'Number',
+    date: 'Date',
+    select: 'Select',
+    multiselect: 'Multi-select',
+    checkbox: 'Checkbox',
+    user_picker: 'User picker',
+  };
+  // One line of plain English per type, shown next to the type picker so the
+  // irreversible choice is made with its consequences visible.
+  const FIELD_TYPE_HINT = {
+    text_short: 'A single line of text.',
+    text_long: 'A paragraph — notes, steps to reproduce.',
+    number: 'Any number, whole or decimal.',
+    date: 'A calendar date.',
+    select: 'Pick exactly one from a list you define.',
+    multiselect: 'Pick any number from a list you define.',
+    checkbox: 'A yes / no tick.',
+    user_picker: 'A member of the work item\'s project.',
+  };
+
+  const fieldHasOptions = (fieldType) => fieldType === 'select' || fieldType === 'multiselect';
+  const isMultiValue = (fieldType) => fieldType === 'multiselect';
+
+  // Global CustomField/Screen management: Owner of ANY project, not
+  // necessarily the project in front of you. `roles` is every role this
+  // person holds, across every project they're a member of.
+  const canManageDefinitions = (roles) => (roles || []).includes('owner');
+
+  // Per-project screen assignment — same tier already used for Components.
+  const canManageScreenAssignments = (role) => role === 'owner' || role === 'admin';
+
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  function isIsoDate(value) {
+    const s = String(value);
+    if (!ISO_DATE.test(s)) return false;
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }
+
+  /* "Blank" is deliberately per-type:
+       - multiselect: an empty list
+       - checkbox:    unticked (so "required" on a checkbox means "must be
+                      ticked", which is the only reading that makes a
+                      required checkbox mean anything)
+       - everything else: null/undefined/whitespace
+     Blankness is the required-check's business; fieldValueError never
+     complains about a blank value. */
+  function isBlankValue(fieldType, value) {
+    if (isMultiValue(fieldType)) return !Array.isArray(value) || value.length === 0;
+    if (fieldType === 'checkbox') return !(value === true || value === 'true');
+    return value === null || value === undefined || String(value).trim() === '';
+  }
+
+  /* Type-checks one value against its field. Returns a human message, or
+     null when it's fine. `ctx.optionIds` is the field's *current* option
+     ids; `ctx.memberIds` is the work item's project's member user ids. */
+  function fieldValueError(field, value, ctx) {
+    ctx = ctx || {};
+    const type = field.field_type;
+    if (isBlankValue(type, value)) return null;
+
+    const optionIds = (ctx.optionIds || []).map(Number);
+    const memberIds = (ctx.memberIds || []).map(Number);
+
+    switch (type) {
+      case 'text_short':
+        return String(value).length > 255
+          ? `"${field.name}" must be 255 characters or fewer.`
+          : null;
+      case 'text_long':
+        return null;
+      case 'number': {
+        const n = Number(String(value).trim());
+        return Number.isFinite(n) ? null : `"${field.name}" must be a number.`;
+      }
+      case 'date':
+        return isIsoDate(value) ? null : `"${field.name}" must be a date (YYYY-MM-DD).`;
+      case 'checkbox':
+        return null; // anything truthy already survived isBlankValue
+      case 'select':
+        return optionIds.includes(Number(value))
+          ? null
+          : `"${field.name}" must be one of its current options.`;
+      case 'multiselect': {
+        const bad = value.filter(v => !optionIds.includes(Number(v)));
+        return bad.length ? `"${field.name}" must only use its current options.` : null;
+      }
+      case 'user_picker':
+        return memberIds.includes(Number(value))
+          ? null
+          : `"${field.name}" must be a member of this project.`;
+      default:
+        return `"${field.name}" has an unknown field type.`;
+    }
+  }
+
+  /* Validates a whole submission against a Screen's field list.
+     `rows` is [{ field, required }] in screen order; `values` is
+     { fieldId: value }; `contextFor(field)` supplies optionIds/memberIds.
+     Returns { fieldId: message } — empty when everything passes. */
+  function screenValueErrors(rows, values, contextFor) {
+    const errors = {};
+    (rows || []).forEach(row => {
+      const field = row.field;
+      const value = values ? values[field.id] : undefined;
+      if (isBlankValue(field.field_type, value)) {
+        if (row.required) errors[field.id] = `"${field.name}" is required.`;
+        return;
+      }
+      const err = fieldValueError(field, value, contextFor ? contextFor(field) : {});
+      if (err) errors[field.id] = err;
+    });
+    return errors;
+  }
+
   return {
     ROLE_LABEL,
     canInvite, canRemove, canChangeRole,
@@ -54,5 +183,9 @@ const Logic = (() => {
     ITEM_TYPES, ITEM_TYPE_LABEL, VALID_PARENT_TYPES,
     requiresParent, canHaveParent, isValidParent, canManageComponents,
     STATUSES, STATUS_LABELS,
+    FIELD_TYPES, FIELD_TYPE_LABEL, FIELD_TYPE_HINT,
+    fieldHasOptions, isMultiValue,
+    canManageDefinitions, canManageScreenAssignments,
+    isIsoDate, isBlankValue, fieldValueError, screenValueErrors,
   };
 })();

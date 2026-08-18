@@ -103,6 +103,80 @@ const Store = (() => {
 
   const projectItemCounters = { 1: 6 }; // next number after the 5 seeded TASKY items
 
+  // Custom Fields & Screens (sub-project 2b) seed data --------------------
+
+  let customFields = [];
+  let fieldOptions = [];
+  let screens = [];
+  let screenFields = [];
+  let screenAssignments = [];
+  let workItemFieldValues = [];
+
+  function seedField(name, fieldType, optionLabels) {
+    const field = { id: id(), name, field_type: fieldType, created_by: 1 };
+    customFields.push(field);
+    (optionLabels || []).forEach((label, i) => {
+      fieldOptions.push({ id: id(), field: field.id, label, position: i });
+    });
+    return field;
+  }
+
+  // One of every type, so a reviewer sees each renderer without having to
+  // create anything first.
+  const fSeverity   = seedField('Severity', 'select', ['Blocker', 'Major', 'Minor', 'Cosmetic']);
+  const fEnvironment = seedField('Environment', 'text_short');
+  const fRepro      = seedField('Steps to reproduce', 'text_long');
+  const fPlatforms  = seedField('Affected platforms', 'multiselect', ['Web', 'iOS', 'Android', 'Desktop']);
+  const fStoryPts   = seedField('Story Points', 'number');
+  const fTargetDate = seedField('Target release', 'date');
+  const fNeedsQA    = seedField('Needs QA sign-off', 'checkbox');
+  const fReviewer   = seedField('Reviewer', 'user_picker');
+  // Deliberately on no screen at all: the one field a reviewer can delete
+  // straight away, and the one they can add to a screen straight away.
+  seedField('Customer reference', 'text_short');
+
+  function seedScreen(name, rows) {
+    const screen = { id: id(), name };
+    screens.push(screen);
+    rows.forEach(([field, required], i) => {
+      screenFields.push({ id: id(), screen: screen.id, field: field.id, position: i, required: !!required });
+    });
+    return screen;
+  }
+
+  // Story Points sits on both screens — required on one, optional on the
+  // other. That's the spec's per-screen `required` choice, visible from the
+  // seed rather than only after a reviewer sets it up.
+  const bugScreen = seedScreen('Bug triage', [
+    [fSeverity, true], [fEnvironment, true], [fRepro, false],
+    [fPlatforms, false], [fStoryPts, false],
+  ]);
+  const storyScreen = seedScreen('Story delivery', [
+    [fStoryPts, true], [fTargetDate, false], [fNeedsQA, false], [fReviewer, false],
+  ]);
+
+  screenAssignments = [
+    { id: id(), project: 1, item_type: 'story', screen: storyScreen.id },
+    { id: id(), project: 1, item_type: 'bug',   screen: bugScreen.id },
+  ];
+
+  const optionByLabel = (field, label) =>
+    fieldOptions.find(o => o.field === field.id && o.label === label);
+
+  function seedValue(item, field, value) {
+    workItemFieldValues.push({ id: id(), work_item: item.id, field: field.id, value: String(value) });
+  }
+
+  seedValue(bug1, fSeverity, optionByLabel(fSeverity, 'Major').id);
+  seedValue(bug1, fEnvironment, 'Safari 17.4 / macOS 14.4');
+  seedValue(bug1, fPlatforms, optionByLabel(fPlatforms, 'Web').id);
+  seedValue(bug1, fPlatforms, optionByLabel(fPlatforms, 'Desktop').id);
+  seedValue(story1, fStoryPts, '5');
+  // Orphan on purpose: Environment is not on the "Story delivery" screen,
+  // so TASKY-2 shows a saved value its form no longer offers — the spec's
+  // "changing a screen never deletes values" rule, visible from the seed.
+  seedValue(story1, fEnvironment, 'Staging');
+
   /* ---- plumbing ---- */
 
   const wait = (v) => new Promise(res => setTimeout(() => res(clone(v)), LATENCY));
@@ -110,6 +184,16 @@ const Store = (() => {
 
   function fail(status, message) {
     return Promise.reject(Object.assign(new Error(message), { status }));
+  }
+
+  // A 400 that also carries a per-field breakdown, so a form can put each
+  // complaint under the control that caused it instead of only shouting
+  // one line at the top. `field: 'custom_fields'` mirrors the name the real
+  // API's error payload uses.
+  function failCustomFields(message, errors) {
+    return Promise.reject(Object.assign(new Error(message), {
+      status: 400, field: 'custom_fields', errors: errors || {},
+    }));
   }
 
   const membershipFor = (projectId, userId) =>
@@ -176,6 +260,9 @@ const Store = (() => {
     projects = projects.filter(p => p.id !== Number(projectId));
     memberships = memberships.filter(m => m.project !== Number(projectId));
     invitations = invitations.filter(i => i.project !== Number(projectId));
+    // The project's screen assignments go with it; the global Screens and
+    // CustomFields they pointed at survive, since they're not project-owned.
+    screenAssignments = screenAssignments.filter(a => a.project !== Number(projectId));
     return wait(null);
   }
 
@@ -329,7 +416,12 @@ const Store = (() => {
     const children = workItems
       .filter(w => w.parent === item.id)
       .map(c => ({ id: c.id, key: c.key, title: c.title, item_type: c.item_type, status: c.status }));
+    const custom = customFieldsOf(item.id);
     return Object.assign({}, item, {
+      // `custom_fields` is the API's read/write shape; `custom_field_details`
+      // is the same data pre-resolved for display (labels, not ids).
+      custom_fields: custom.map,
+      custom_field_details: custom.details,
       assignee_detail: item.assignee ? userById(item.assignee) : null,
       created_by_detail: userById(item.created_by),
       priority_label: { 1: 'Low', 2: 'Medium', 3: 'High' }[item.priority],
@@ -392,6 +484,9 @@ const Store = (() => {
     const hErr = hierarchyError(fields.item_type, parent);
     if (hErr) return fail(400, hErr);
 
+    const cfErr = customFieldsError(board.project, fields.item_type, fields.custom_fields);
+    if (cfErr) return failCustomFields(cfErr.message, cfErr.errors);
+
     const item = seedItem({
       id: id(), key: nextKey(board.project), board: board.id, item_type: fields.item_type,
       title: fields.title.trim(), description: fields.description || '',
@@ -402,6 +497,7 @@ const Store = (() => {
     });
     const siblings = workItems.filter(w => w.board === board.id && w.status === item.status && w.id !== item.id);
     item.position = siblings.length;
+    if (fields.custom_fields) applyCustomFields(item.id, fields.custom_fields);
     return wait(decorateWorkItem(item));
   }
 
@@ -433,11 +529,19 @@ const Store = (() => {
       if (hErr) return fail(400, hErr);
     }
 
+    if ('custom_fields' in fields) {
+      const cfErr = customFieldsError(
+        boardProjectId(item.board), item.item_type, fields.custom_fields, item.id
+      );
+      if (cfErr) return failCustomFields(cfErr.message, cfErr.errors);
+    }
+
     if ('title' in fields) item.title = fields.title.trim();
     ['description', 'status', 'priority', 'due_date', 'assignee', 'component_ids'].forEach(f => {
       if (f in fields) item[f] = fields[f];
     });
     if (newParent !== undefined) item.parent = newParent ? newParent.id : null;
+    if ('custom_fields' in fields) applyCustomFields(item.id, fields.custom_fields);
 
     return wait(decorateWorkItem(item));
   }
@@ -450,6 +554,7 @@ const Store = (() => {
     workItems.forEach(w => { if (w.parent === item.id) w.parent = null; });
     workItems = workItems.filter(w => w.id !== item.id);
     links = links.filter(l => l.item_a !== item.id && l.item_b !== item.id);
+    workItemFieldValues = workItemFieldValues.filter(v => v.work_item !== item.id);
     return wait(null);
   }
 
@@ -540,6 +645,508 @@ const Store = (() => {
     return wait(null);
   }
 
+  /* ---- custom fields & screens (sub-project 2b) --------------------------
+
+     CustomField and Screen are global: any project Owner manages them, and
+     "Owner" means Owner of *any* project, so every check below looks at all
+     of this person's memberships rather than one project's role. Each guard
+     here has a matching row in the spec's error table. */
+
+  const myRoles = () => memberships.filter(m => m.user === me.id).map(m => m.role);
+  const canManageDefinitions = () => Logic.canManageDefinitions(myRoles());
+
+  function requireDefinitionManager(noun) {
+    if (!canManageDefinitions()) {
+      throw Object.assign(
+        new Error(`Only a project Owner can manage ${noun}. You're not an Owner of any project.`),
+        { status: 403 },
+      );
+    }
+  }
+
+  const byPosition = (a, b) => a.position - b.position || a.id - b.id;
+
+  const optionsFor = (fieldId) => fieldOptions.filter(o => o.field === fieldId).sort(byPosition);
+
+  function decorateField(field) {
+    const options = optionsFor(field.id);
+    const onScreens = screenFields
+      .filter(sf => sf.field === field.id)
+      .map(sf => screens.find(s => s.id === sf.screen))
+      .filter(Boolean);
+    return Object.assign({}, field, {
+      type_label: Logic.FIELD_TYPE_LABEL[field.field_type],
+      has_options: Logic.fieldHasOptions(field.field_type),
+      options,
+      screen_names: onScreens.map(s => s.name),
+      value_count: workItemFieldValues.filter(v => v.field === field.id).length,
+      created_by_detail: userById(field.created_by),
+    });
+  }
+
+  function decorateScreen(screen) {
+    const rows = screenFields
+      .filter(sf => sf.screen === screen.id)
+      .sort(byPosition)
+      .map(sf => ({
+        id: sf.id,
+        position: sf.position,
+        required: sf.required,
+        field: decorateField(customFields.find(f => f.id === sf.field)),
+      }));
+    const assignedTo = screenAssignments
+      .filter(a => a.screen === screen.id)
+      .map(a => {
+        const project = projects.find(p => p.id === a.project);
+        return {
+          project_id: a.project,
+          project_key: project ? project.key : '—',
+          item_type: a.item_type,
+          label: `${project ? project.key : '—'} · ${Logic.ITEM_TYPE_LABEL[a.item_type]}`,
+        };
+      });
+    return Object.assign({}, screen, { fields: rows, assigned_to: assignedTo });
+  }
+
+  // Renumbers a position-ordered slice so positions stay 0..n-1 after an
+  // insert, move or delete. (WorkItem.position deliberately allows gaps;
+  // these lists are hand-ordered by a human, so they don't.)
+  function renumber(rows) {
+    rows.sort(byPosition).forEach((row, i) => { row.position = i; });
+  }
+
+  const listFieldTypes = () => wait(Logic.FIELD_TYPES.map(t => ({
+    value: t, label: Logic.FIELD_TYPE_LABEL[t], hint: Logic.FIELD_TYPE_HINT[t],
+  })));
+
+  // Everything a global-admin screen needs to decide what to offer before
+  // it has fetched anything else.
+  const getMyCapabilities = () => wait({
+    can_manage_definitions: canManageDefinitions(),
+    owned_project_keys: memberships
+      .filter(m => m.user === me.id && m.role === 'owner')
+      .map(m => (projects.find(p => p.id === m.project) || {}).key)
+      .filter(Boolean),
+  });
+
+  const listFields = () => wait(
+    customFields.slice().sort((a, b) => a.name.localeCompare(b.name)).map(decorateField)
+  );
+
+  function getField(fieldId) {
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!field) return fail(404, 'Not found.');
+    return wait(decorateField(field));
+  }
+
+  function createField({ name, field_type }) {
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+    const clean = (name || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (!Logic.FIELD_TYPES.includes(field_type)) return fail(400, 'Pick a field type.');
+    if (customFields.some(f => f.name.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" already exists.`);
+    }
+    const field = { id: id(), name: clean, field_type, created_by: me.id };
+    customFields.push(field);
+    return wait(decorateField(field));
+  }
+
+  function renameField(fieldId, name) {
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!field) return fail(404, 'Not found.');
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+    const clean = (name || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (customFields.some(f => f.id !== field.id && f.name.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" already exists.`);
+    }
+    field.name = clean;
+    return wait(decorateField(field));
+  }
+
+  // field_type is immutable — kept as a real rejection rather than just
+  // hiding the control, so the prototype models the API's 400.
+  function changeFieldType(fieldId, fieldType) {
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!field) return fail(404, 'Not found.');
+    if (fieldType === field.field_type) return wait(decorateField(field));
+    return fail(400, "A field's type can't be changed after it's created.");
+  }
+
+  function deleteField(fieldId) {
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!field) return fail(404, 'Not found.');
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+
+    const using = screenFields
+      .filter(sf => sf.field === field.id)
+      .map(sf => (screens.find(s => s.id === sf.screen) || {}).name)
+      .filter(Boolean);
+    if (using.length) {
+      return fail(400, `"${field.name}" is still on ${using.join(', ')}. Remove it from ${using.length === 1 ? 'that screen' : 'those screens'} first.`);
+    }
+    customFields = customFields.filter(f => f.id !== field.id);
+    fieldOptions = fieldOptions.filter(o => o.field !== field.id);
+    workItemFieldValues = workItemFieldValues.filter(v => v.field !== field.id);
+    return wait(null);
+  }
+
+  /* ---- field options ---- */
+
+  function requireOptionField(fieldId) {
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!field) throw Object.assign(new Error('Not found.'), { status: 404 });
+    if (!Logic.fieldHasOptions(field.field_type)) {
+      throw Object.assign(
+        new Error(`Only Select and Multi-select fields have options — "${field.name}" is a ${Logic.FIELD_TYPE_LABEL[field.field_type]}.`),
+        { status: 400 },
+      );
+    }
+    return field;
+  }
+
+  function addFieldOption(fieldId, label) {
+    let field;
+    try {
+      field = requireOptionField(fieldId);
+      requireDefinitionManager('custom fields');
+    } catch (err) { return Promise.reject(err); }
+    const clean = (label || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (fieldOptions.some(o => o.field === field.id && o.label.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" is already an option.`);
+    }
+    const option = { id: id(), field: field.id, label: clean, position: optionsFor(field.id).length };
+    fieldOptions.push(option);
+    return wait(decorateField(field));
+  }
+
+  function renameFieldOption(optionId, label) {
+    const option = fieldOptions.find(o => o.id === Number(optionId));
+    if (!option) return fail(404, 'Not found.');
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+    const clean = (label || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (fieldOptions.some(o => o.field === option.field && o.id !== option.id && o.label.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" is already an option.`);
+    }
+    // Values store the option's id, never its label, so a rename can't
+    // invalidate anything already saved.
+    option.label = clean;
+    return wait(decorateField(customFields.find(f => f.id === option.field)));
+  }
+
+  function moveFieldOption(optionId, delta) {
+    const option = fieldOptions.find(o => o.id === Number(optionId));
+    if (!option) return fail(404, 'Not found.');
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+    const siblings = optionsFor(option.field);
+    const from = siblings.indexOf(option);
+    const to = from + Number(delta);
+    if (to < 0 || to >= siblings.length) return wait(decorateField(customFields.find(f => f.id === option.field)));
+    siblings.splice(from, 1);
+    siblings.splice(to, 0, option);
+    siblings.forEach((o, i) => { o.position = i; });
+    return wait(decorateField(customFields.find(f => f.id === option.field)));
+  }
+
+  function deleteFieldOption(optionId) {
+    const option = fieldOptions.find(o => o.id === Number(optionId));
+    if (!option) return fail(404, 'Not found.');
+    try { requireDefinitionManager('custom fields'); } catch (err) { return Promise.reject(err); }
+
+    const uses = workItemFieldValues.filter(
+      v => v.field === option.field && String(v.value) === String(option.id)
+    );
+    if (uses.length) {
+      const where = uses
+        .map(v => (workItems.find(w => w.id === v.work_item) || {}).key)
+        .filter(Boolean);
+      return fail(400, `"${option.label}" is still chosen on ${where.join(', ') || 'a work item'}. Clear it there first.`);
+    }
+    fieldOptions = fieldOptions.filter(o => o.id !== option.id);
+    renumber(optionsFor(option.field));
+    return wait(decorateField(customFields.find(f => f.id === option.field)));
+  }
+
+  /* ---- screens ---- */
+
+  const listScreens = () => wait(
+    screens.slice().sort((a, b) => a.name.localeCompare(b.name)).map(decorateScreen)
+  );
+
+  function getScreen(screenId) {
+    const screen = screens.find(s => s.id === Number(screenId));
+    if (!screen) return fail(404, 'Not found.');
+    return wait(decorateScreen(screen));
+  }
+
+  function createScreen(name) {
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    const clean = (name || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (screens.some(s => s.name.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" already exists.`);
+    }
+    const screen = { id: id(), name: clean };
+    screens.push(screen);
+    return wait(decorateScreen(screen));
+  }
+
+  function renameScreen(screenId, name) {
+    const screen = screens.find(s => s.id === Number(screenId));
+    if (!screen) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    const clean = (name || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (screens.some(s => s.id !== screen.id && s.name.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" already exists.`);
+    }
+    screen.name = clean;
+    return wait(decorateScreen(screen));
+  }
+
+  function deleteScreen(screenId) {
+    const screen = screens.find(s => s.id === Number(screenId));
+    if (!screen) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+
+    const assigned = decorateScreen(screen).assigned_to.map(a => a.label);
+    if (assigned.length) {
+      return fail(400, `"${screen.name}" is still assigned to ${assigned.join(', ')}. Unassign it first.`);
+    }
+    screens = screens.filter(s => s.id !== screen.id);
+    screenFields = screenFields.filter(sf => sf.screen !== screen.id);
+    return wait(null);
+  }
+
+  function addScreenField(screenId, fieldId) {
+    const screen = screens.find(s => s.id === Number(screenId));
+    const field = customFields.find(f => f.id === Number(fieldId));
+    if (!screen || !field) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    if (screenFields.some(sf => sf.screen === screen.id && sf.field === field.id)) {
+      return fail(400, `"${field.name}" is already on this screen.`);
+    }
+    screenFields.push({
+      id: id(), screen: screen.id, field: field.id,
+      position: screenFields.filter(sf => sf.screen === screen.id).length,
+      required: false,
+    });
+    return wait(decorateScreen(screen));
+  }
+
+  function moveScreenField(screenFieldId, delta) {
+    const row = screenFields.find(sf => sf.id === Number(screenFieldId));
+    if (!row) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    const screen = screens.find(s => s.id === row.screen);
+    const siblings = screenFields.filter(sf => sf.screen === row.screen).sort(byPosition);
+    const from = siblings.indexOf(row);
+    const to = from + Number(delta);
+    if (to < 0 || to >= siblings.length) return wait(decorateScreen(screen));
+    siblings.splice(from, 1);
+    siblings.splice(to, 0, row);
+    siblings.forEach((sf, i) => { sf.position = i; });
+    return wait(decorateScreen(screen));
+  }
+
+  // `required` lives on the through-model, so the same field can be
+  // required here and optional on the next screen along.
+  function setScreenFieldRequired(screenFieldId, required) {
+    const row = screenFields.find(sf => sf.id === Number(screenFieldId));
+    if (!row) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    row.required = !!required;
+    return wait(decorateScreen(screens.find(s => s.id === row.screen)));
+  }
+
+  function removeScreenField(screenFieldId) {
+    const row = screenFields.find(sf => sf.id === Number(screenFieldId));
+    if (!row) return fail(404, 'Not found.');
+    try { requireDefinitionManager('screens'); } catch (err) { return Promise.reject(err); }
+    const screen = screens.find(s => s.id === row.screen);
+    screenFields = screenFields.filter(sf => sf.id !== row.id);
+    renumber(screenFields.filter(sf => sf.screen === screen.id));
+    // Values already saved against this field stay put — the spec is
+    // explicit that changing a screen never deletes data.
+    return wait(decorateScreen(screen));
+  }
+
+  /* ---- per-project screen assignment ---- */
+
+  const assignmentFor = (projectId, itemType) =>
+    screenAssignments.find(a => a.project === Number(projectId) && a.item_type === itemType);
+
+  function listScreenAssignments(projectId) {
+    try { requireMember(projectId); } catch (err) { return Promise.reject(err); }
+    return wait(Logic.ITEM_TYPES.map(itemType => {
+      const row = assignmentFor(projectId, itemType);
+      const screen = row ? screens.find(s => s.id === row.screen) : null;
+      return {
+        item_type: itemType,
+        item_type_label: Logic.ITEM_TYPE_LABEL[itemType],
+        screen: screen ? screen.id : null,
+        screen_name: screen ? screen.name : null,
+        field_count: screen ? screenFields.filter(sf => sf.screen === screen.id).length : 0,
+      };
+    }));
+  }
+
+  function setScreenAssignment(projectId, itemType, screenId) {
+    try { requireMember(projectId); } catch (err) { return Promise.reject(err); }
+    if (!Logic.canManageScreenAssignments(myRole(projectId))) {
+      return fail(403, "Only this project's Owner or Admins can change screen assignments.");
+    }
+    if (!Logic.ITEM_TYPES.includes(itemType)) return fail(400, 'Invalid item type.');
+
+    const existing = assignmentFor(projectId, itemType);
+    if (screenId === null || screenId === '' || screenId === undefined) {
+      screenAssignments = screenAssignments.filter(a => a !== existing);
+      return wait(null);
+    }
+    const screen = screens.find(s => s.id === Number(screenId));
+    if (!screen) return fail(400, 'That screen no longer exists.');
+    if (existing) existing.screen = screen.id;
+    else screenAssignments.push({ id: id(), project: Number(projectId), item_type: itemType, screen: screen.id });
+    return wait(decorateScreen(screen));
+  }
+
+  // Resolves (project, item_type) -> Screen, the lookup the create/edit
+  // form does before it knows what to render. null means "built-in fields
+  // only", which is exactly the pre-2b behaviour.
+  function getScreenForItemType(projectId, itemType) {
+    try { requireMember(projectId); } catch (err) { return Promise.reject(err); }
+    const row = assignmentFor(projectId, itemType);
+    if (!row) return wait(null);
+    const screen = screens.find(s => s.id === row.screen);
+    return wait(screen ? decorateScreen(screen) : null);
+  }
+
+  /* ---- work item field values ---- */
+
+  const valuesFor = (itemId, fieldId) =>
+    workItemFieldValues.filter(v => v.work_item === Number(itemId) && v.field === Number(fieldId));
+
+  // The read shape: multiselect -> array of option ids, checkbox -> true
+  // (absent when unticked), everything else -> its single value.
+  function readValue(itemId, field) {
+    const rows = valuesFor(itemId, field.id);
+    if (Logic.isMultiValue(field.field_type)) return rows.map(r => Number(r.value));
+    if (!rows.length) return null;
+    if (field.field_type === 'checkbox') return true;
+    if (field.field_type === 'select' || field.field_type === 'user_picker') return Number(rows[0].value);
+    return rows[0].value;
+  }
+
+  function displayValue(field, value) {
+    const labelOf = (optionId) => {
+      const option = fieldOptions.find(o => o.id === Number(optionId));
+      return option ? option.label : '(removed option)';
+    };
+    switch (field.field_type) {
+      case 'select': return labelOf(value);
+      case 'multiselect': return value.map(labelOf).join(', ');
+      case 'checkbox': return 'Yes';
+      case 'user_picker': {
+        const user = userById(value);
+        return user ? user.display_name : 'Unknown user';
+      }
+      default: return String(value);
+    }
+  }
+
+  // Every saved value on this item, screen or no screen — the spec's
+  // "orphaned values stay visible" rule lives here.
+  function customFieldsOf(itemId) {
+    const map = {};
+    const details = [];
+    const fieldIds = [...new Set(workItemFieldValues.filter(v => v.work_item === itemId).map(v => v.field))];
+    fieldIds
+      .map(fid => customFields.find(f => f.id === fid))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(field => {
+        const value = readValue(itemId, field);
+        if (Logic.isBlankValue(field.field_type, value)) return;
+        map[field.id] = value;
+        details.push({ field: decorateField(field), value, display: displayValue(field, value) });
+      });
+    return { map, details };
+  }
+
+  /* Validates a `custom_fields` payload against the screen assigned to
+     (project, item_type). Returns null when it's fine, or
+     { message, errors } — one entry per offending field. On an edit,
+     `existingItemId` lets a required field already holding a value stay
+     satisfied when the payload doesn't mention it. */
+  function customFieldsError(projectId, itemType, payload, existingItemId) {
+    const keys = Object.keys(payload || {});
+    const row = assignmentFor(projectId, itemType);
+    const screen = row ? screens.find(s => s.id === row.screen) : null;
+
+    if (!screen) {
+      if (!keys.length) return null;
+      return {
+        message: `${Logic.ITEM_TYPE_LABEL[itemType]} items in this project have no screen assigned, so custom fields can't be set on them.`,
+        errors: {},
+      };
+    }
+
+    const rows = decorateScreen(screen).fields;
+    const allowed = new Set(rows.map(r => r.field.id));
+    const stray = {};
+    keys.forEach(key => {
+      if (!allowed.has(Number(key))) {
+        const field = customFields.find(f => f.id === Number(key));
+        stray[key] = `${field ? `"${field.name}"` : 'That field'} isn't on the "${screen.name}" screen.`;
+      }
+    });
+    if (Object.keys(stray).length) {
+      return { message: `Some values aren't on the "${screen.name}" screen.`, errors: stray };
+    }
+
+    const memberIds = memberships.filter(m => m.project === Number(projectId)).map(m => m.user);
+    // Merge payload over what's already saved: a PATCH that names only some
+    // of the screen's fields still has to leave every required one filled.
+    const merged = {};
+    rows.forEach(r => {
+      const field = r.field;
+      merged[field.id] = Object.prototype.hasOwnProperty.call(payload || {}, String(field.id))
+        ? payload[field.id]
+        : (existingItemId ? readValue(existingItemId, field) : undefined);
+    });
+
+    const errors = Logic.screenValueErrors(rows, merged, (field) => ({
+      optionIds: optionsFor(field.id).map(o => o.id),
+      memberIds,
+    }));
+    if (Object.keys(errors).length) {
+      return { message: Object.values(errors)[0], errors };
+    }
+    return null;
+  }
+
+  // Upsert-by-replacement, per the spec: every field named in the payload
+  // loses all of its existing rows first, then gets the new one (or several,
+  // for multiselect). Blank clears the field rather than storing an empty.
+  function applyCustomFields(itemId, payload) {
+    Object.keys(payload || {}).forEach(key => {
+      const field = customFields.find(f => f.id === Number(key));
+      if (!field) return;
+      workItemFieldValues = workItemFieldValues.filter(
+        v => !(v.work_item === itemId && v.field === field.id)
+      );
+      const raw = payload[key];
+      if (Logic.isBlankValue(field.field_type, raw)) return;
+      const list = Logic.isMultiValue(field.field_type) ? raw : [raw];
+      [...new Set(list.map(String))].forEach(value => {
+        workItemFieldValues.push({ id: id(), work_item: itemId, field: field.id, value });
+      });
+    });
+  }
+
   const listUsers = () => wait(users);
 
   return {
@@ -553,5 +1160,11 @@ const Store = (() => {
     listComponents, createComponent, renameComponent, deleteComponent,
     listLinks, createLink, deleteLink,
     listUsers,
+    getMyCapabilities, listFieldTypes,
+    listFields, getField, createField, renameField, changeFieldType, deleteField,
+    addFieldOption, renameFieldOption, moveFieldOption, deleteFieldOption,
+    listScreens, getScreen, createScreen, renameScreen, deleteScreen,
+    addScreenField, moveScreenField, setScreenFieldRequired, removeScreenField,
+    listScreenAssignments, setScreenAssignment, getScreenForItemType,
   };
 })();

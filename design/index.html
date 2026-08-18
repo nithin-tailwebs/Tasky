@@ -37,7 +37,9 @@
   <header class="topbar">
     <a class="brand" href="#/projects">Tasky</a>
     <nav class="nav">
-      <a href="#/projects" class="is-active">Projects</a>
+      <a href="#/projects" data-nav="projects">Projects</a>
+      <a href="#/fields" data-nav="fields">Fields</a>
+      <a href="#/screens" data-nav="screens">Screens</a>
     </nav>
     <div class="topbar-end">
       <span class="who" data-who></span>
@@ -108,6 +110,12 @@
     </section>
 
     <section>
+      <h2 class="section-label">Field screens</h2>
+      <p class="page-sub" style="margin-bottom:10px">Which screen each work item type uses in this project. Owner and Admins choose; “None” means built-in fields only.</p>
+      <ul class="assign-list" data-assignments></ul>
+    </section>
+
+    <section>
       <h2 class="section-label">Members</h2>
       <ul class="member-list" data-members></ul>
     </section>
@@ -129,6 +137,44 @@
       <p class="legend" data-type-legend></p>
     </div>
     <div class="columns" data-columns></div>
+  </div>
+</template>
+
+<template id="tpl-fields">
+  <div class="page page-narrow">
+    <div class="page-head">
+      <h1>Custom fields</h1>
+      <p class="page-sub">Global — one list, shared by every project. Put them on a Screen to make them appear on a work item.</p>
+    </div>
+
+    <form class="create-field" data-create-field novalidate hidden>
+      <input name="name" placeholder="Field name" aria-label="Field name" required>
+      <select name="field_type" aria-label="Field type" data-type-select></select>
+      <button class="btn btn-primary" type="submit">Add field</button>
+    </form>
+    <p class="hint" data-type-hint hidden></p>
+    <p class="form-error" data-create-error hidden></p>
+    <p class="locked-note" data-locked hidden></p>
+
+    <ul class="admin-list" data-list></ul>
+  </div>
+</template>
+
+<template id="tpl-screens">
+  <div class="page page-narrow">
+    <div class="page-head">
+      <h1>Screens</h1>
+      <p class="page-sub">An ordered set of custom fields. A project points each work item type at one of these.</p>
+    </div>
+
+    <form class="create-screen" data-create-screen novalidate hidden>
+      <input name="name" placeholder="Screen name" aria-label="Screen name" required>
+      <button class="btn btn-primary" type="submit">Add screen</button>
+    </form>
+    <p class="form-error" data-create-error hidden></p>
+    <p class="locked-note" data-locked hidden></p>
+
+    <ul class="admin-list" data-list></ul>
   </div>
 </template>
 

@@ -1,12 +1,19 @@
-/* Tasky — Projects & Membership design prototype (sub-project 1 of 7).
-   Mock-only: no backend, no build step. Role rules live in logic.js;
-   store.js enforces them the same way the real API will. Views, routing
-   and the interaction polish (skeletons, staggered rows, animated modal
-   and toast lifecycle) live here. */
+/* Tasky — design prototype: Projects & Membership (1), Work Item
+   Hierarchy (2a), Custom Fields & Screens (2b).
+   Mock-only: no backend, no build step. Role, hierarchy and field-validation
+   rules live in logic.js; store.js enforces them the same way the real API
+   will. Views, routing and the interaction polish (skeletons, staggered
+   rows, animated modal and toast lifecycle) live here. */
 
 const root = document.getElementById('root');
 const tpl = (id) => document.getElementById(id).content.cloneNode(true);
-const esc = (s) => String(s == null ? '' : s);
+// Everything below builds markup as strings, so this escapes rather than
+// merely stringifies — field names and option labels are user-typed.
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
 const outlet = () => root.querySelector('[data-main]');
 
 let me = null;
@@ -98,9 +105,22 @@ function renderShell() {
   route();
 }
 
+function setActiveNav(key) {
+  root.querySelectorAll('.nav a[data-nav]').forEach(a => {
+    a.classList.toggle('is-active', a.dataset.nav === key);
+  });
+}
+
 function route() {
   if (!me) return;
   const hash = location.hash.replace(/^#/, '') || '/projects';
+
+  // Fields and Screens are global objects, not project-scoped ones, so they
+  // sit beside Projects in the nav rather than inside a project.
+  if (hash === '/fields')  { setActiveNav('fields');  return viewFields(); }
+  if (hash === '/screens') { setActiveNav('screens'); return viewScreens(); }
+
+  setActiveNav('projects');
   const boardMatch = hash.match(/^\/projects\/(\d+)\/boards\/(\d+)$/);
   if (boardMatch) return viewBoard(Number(boardMatch[1]), Number(boardMatch[2]));
   const m = hash.match(/^\/projects\/(\d+)$/);
@@ -239,6 +259,7 @@ async function viewProject(projectId) {
     renderProjectActions(main, project);
     await renderBoards(main, projectId);
     await renderComponents(main, projectId, project.my_role);
+    await renderScreenAssignments(main, projectId, project.my_role);
     await renderMembers(main, projectId, project.my_role);
     await renderPendingInvites(main, projectId, project.my_role);
   } catch (err) {
@@ -355,6 +376,78 @@ function componentRow(component, projectId, myRole) {
         toast('Component deleted');
         await renderComponents(outlet(), projectId, myRole);
       } catch (err) { handle(err); }
+    });
+  }
+  return li;
+}
+
+/* Per-project screen assignment (sub-project 2b) --------------------------
+   One row per work item type. "None" is a real, common answer — it means
+   the type keeps exactly the built-in fields it had before 2b existed. */
+
+async function renderScreenAssignments(main, projectId, myRole) {
+  const list = main.querySelector('[data-assignments]');
+  if (!list) return;
+  list.innerHTML = skeletonList(5);
+  const canEdit = Logic.canManageScreenAssignments(myRole);
+
+  try {
+    const [assignments, allScreens] = await Promise.all([
+      Store.listScreenAssignments(projectId),
+      Store.listScreens(),
+    ]);
+
+    if (!allScreens.length && !assignments.some(a => a.screen)) {
+      list.innerHTML =
+        '<li class="empty">No screens exist yet. Build one under <a href="#/screens">Screens</a> ' +
+        'and every work item type here can point at it.</li>';
+      return;
+    }
+
+    const rows = assignments.map(a => assignmentRow(a, allScreens, projectId, myRole, canEdit));
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+function assignmentRow(assignment, allScreens, projectId, myRole, canEdit) {
+  const li = document.createElement('li');
+  li.className = 'assign-row';
+  const type = assignment.item_type;
+  const meta = assignment.screen
+    ? `${assignment.field_count} field${assignment.field_count === 1 ? '' : 's'}`
+    : 'Built-in fields only';
+
+  li.innerHTML =
+    `<span class="type-badge type-${type}">${esc(assignment.item_type_label)}</span>` +
+    `<span class="assign-meta">${esc(meta)}</span>` +
+    (canEdit
+      ? `<select class="assign-select" data-screen aria-label="Screen for ${esc(assignment.item_type_label)}">` +
+          `<option value="">None — built-in fields only</option>` +
+          allScreens.map(s =>
+            `<option value="${s.id}" ${assignment.screen === s.id ? 'selected' : ''}>${esc(s.name)}</option>`
+          ).join('') +
+        `</select>`
+      : `<span class="assign-value ${assignment.screen ? '' : 'is-none'}">${esc(assignment.screen_name || 'None')}</span>`);
+
+  const select = li.querySelector('[data-screen]');
+  if (select) {
+    const previous = assignment.screen ? String(assignment.screen) : '';
+    select.addEventListener('change', async () => {
+      const chosen = select.options[select.selectedIndex].textContent;
+      try {
+        await Store.setScreenAssignment(projectId, type, select.value || null);
+        toast(select.value
+          ? `${assignment.item_type_label}s now use "${chosen}"`
+          : `${assignment.item_type_label}s use built-in fields only`);
+        await renderScreenAssignments(outlet(), projectId, myRole);
+      } catch (err) {
+        select.value = previous;  // put the control back where it was
+        handle(err);
+      }
     });
   }
   return li;
@@ -596,6 +689,641 @@ async function openTransferModal(project) {
   });
 }
 
+/* Custom fields admin (sub-project 2b) ------------------------------------
+   Global list. Anyone can look; only an Owner — of any project, which is
+   the spec's deliberate self-serve choice — gets the controls. */
+
+async function viewFields() {
+  const main = outlet();
+  main.replaceChildren(tpl('tpl-fields'));
+
+  const list = main.querySelector('[data-list]');
+  const form = main.querySelector('[data-create-field]');
+  const typeSelect = form.querySelector('[data-type-select]');
+  const hint = main.querySelector('[data-type-hint]');
+  const errorEl = main.querySelector('[data-create-error]');
+  const locked = main.querySelector('[data-locked]');
+  list.innerHTML = skeletonList(4);
+
+  let caps, types;
+  try {
+    [caps, types] = await Promise.all([Store.getMyCapabilities(), Store.listFieldTypes()]);
+  } catch (err) {
+    list.innerHTML = '';
+    return handle(err);
+  }
+
+  if (caps.can_manage_definitions) {
+    form.hidden = false;
+    typeSelect.replaceChildren(...types.map(t => {
+      const opt = document.createElement('option');
+      opt.value = t.value;
+      opt.textContent = t.label;
+      return opt;
+    }));
+    const showHint = () => {
+      const chosen = types.find(t => t.value === typeSelect.value);
+      hint.textContent = `${chosen.hint} A field's type is fixed once it's created.`;
+      hint.hidden = false;
+    };
+    typeSelect.addEventListener('change', showHint);
+    showHint();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      const nameInput = form.querySelector('[name=name]');
+      try {
+        const field = await Store.createField({ name: nameInput.value, field_type: typeSelect.value });
+        nameInput.value = '';
+        nameInput.focus();
+        toast(`"${field.name}" added`);
+        await paintFields(list, true);
+        // A brand-new select needs options before it's usable anywhere, so
+        // offer that step rather than making them find it.
+        if (field.has_options) openFieldOptionsModal(field.id, true, () => paintFields(list, true));
+      } catch (err) {
+        errorEl.textContent = errorText(err);
+        errorEl.hidden = false;
+      }
+    });
+  } else {
+    locked.hidden = false;
+    locked.textContent =
+      "Only a project Owner can add or change custom fields — Owner of any project counts. " +
+      "You can see the whole list, and use these fields on any work item whose screen includes them.";
+  }
+
+  await paintFields(list, caps.can_manage_definitions);
+}
+
+async function paintFields(list, canManage) {
+  list.innerHTML = skeletonList(4);
+  try {
+    const fields = await Store.listFields();
+    if (!fields.length) {
+      list.innerHTML = canManage
+        ? '<li class="empty">No custom fields yet. Name one above and pick its type.</li>'
+        : '<li class="empty">No custom fields have been created yet.</li>';
+      return;
+    }
+    const rows = fields.map(f => fieldRow(f, list, canManage));
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+function fieldRow(field, list, canManage) {
+  const li = document.createElement('li');
+  li.className = 'admin-row';
+
+  const bits = [];
+  if (field.has_options) bits.push(`${field.options.length} option${field.options.length === 1 ? '' : 's'}`);
+  bits.push(field.screen_names.length ? `on ${field.screen_names.join(', ')}` : 'on no screen');
+  if (field.value_count) bits.push(`${field.value_count} saved value${field.value_count === 1 ? '' : 's'}`);
+
+  li.innerHTML =
+    `<span class="name" ${canManage ? 'contenteditable="true" data-rename' : ''}>${esc(field.name)}</span>` +
+    `<span class="type-badge ft">${esc(field.type_label)}</span>` +
+    `<span class="row-meta">${esc(bits.join(' · '))}</span>` +
+    `<span class="actions">` +
+      (field.has_options ? `<button class="btn" data-options>Options</button>` : '') +
+      (canManage ? `<button class="btn btn-danger" data-delete>Delete</button>` : '') +
+    `</span>`;
+
+  const nameEl = li.querySelector('[data-rename]');
+  if (nameEl) {
+    nameEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+    });
+    nameEl.addEventListener('blur', async () => {
+      const value = nameEl.textContent.trim();
+      if (!value || value === field.name) { nameEl.textContent = field.name; return; }
+      try {
+        await Store.renameField(field.id, value);
+        field.name = value;
+        toast('Field renamed');
+        await paintFields(list, canManage);
+      } catch (err) {
+        nameEl.textContent = field.name;
+        handle(err);
+      }
+    });
+  }
+
+  const optionsBtn = li.querySelector('[data-options]');
+  if (optionsBtn) {
+    optionsBtn.addEventListener('click', () =>
+      openFieldOptionsModal(field.id, canManage, () => paintFields(list, canManage)));
+  }
+
+  const deleteBtn = li.querySelector('[data-delete]');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        await Store.deleteField(field.id);
+        toast(`"${field.name}" deleted`);
+        await paintFields(list, canManage);
+      } catch (err) { handle(err); }
+    });
+  }
+
+  return li;
+}
+
+/* Field options — an ordered list, edited in place so the reviewer sees the
+   order change rather than a page reload. */
+
+async function openFieldOptionsModal(fieldId, canManage, onChange) {
+  let field;
+  try { field = await Store.getField(fieldId); } catch (err) { return handle(err); }
+  if (!field.has_options) {
+    return toast(`"${field.name}" is a ${field.type_label} — only Select and Multi-select have options.`, true);
+  }
+
+  const body =
+    `<div class="modal-head">` +
+      `<p class="eyebrow">${esc(field.name)} · <span class="type-badge ft">${esc(field.type_label)}</span></p>` +
+      `<button class="btn btn-quiet" data-close>Close</button>` +
+    `</div>` +
+    `<p class="hint">This order is the order they appear in the picker. Saved values store an option's id, never its label, so renaming one never changes what a work item already picked.</p>` +
+    `<ul class="order-list" data-options></ul>` +
+    `<p class="form-error" data-error hidden></p>` +
+    (canManage
+      ? `<form class="add-row" data-add novalidate>` +
+          `<input name="label" placeholder="New option" aria-label="New option" autocomplete="off">` +
+          `<button class="btn" type="submit">Add option</button>` +
+        `</form>`
+      : `<p class="hint">Only a project Owner can change these.</p>`);
+
+  const { modal } = openModal(body);
+  const listEl = modal.querySelector('[data-options]');
+  const errorEl = modal.querySelector('[data-error]');
+  const clearError = () => { errorEl.hidden = true; };
+  const showError = (err) => { errorEl.textContent = errorText(err); errorEl.hidden = false; };
+
+  function paint() {
+    if (!field.options.length) {
+      listEl.innerHTML = '<li class="empty-inline">No options yet — add the first one below.</li>';
+      return;
+    }
+    listEl.replaceChildren(...field.options.map(optionRow));
+  }
+
+  function optionRow(option, i) {
+    const last = i === field.options.length - 1;
+    const li = document.createElement('li');
+    li.className = 'order-row';
+    li.innerHTML =
+      (canManage
+        ? `<span class="order-handle">` +
+            `<button class="icon-btn" data-up ${i === 0 ? 'disabled' : ''} aria-label="Move up" type="button">▲</button>` +
+            `<button class="icon-btn" data-down ${last ? 'disabled' : ''} aria-label="Move down" type="button">▼</button>` +
+          `</span>`
+        : '') +
+      `<span class="pos-index">${i + 1}</span>` +
+      `<span class="label" ${canManage ? 'contenteditable="true" data-rename' : ''}>${esc(option.label)}</span>` +
+      (canManage ? `<button class="btn btn-danger" data-remove type="button">Remove</button>` : '');
+
+    const run = async (fn) => {
+      clearError();
+      try {
+        field = await fn();
+        paint();
+        if (onChange) onChange();
+      } catch (err) { showError(err); }
+    };
+
+    const up = li.querySelector('[data-up]');
+    if (up) up.addEventListener('click', () => run(() => Store.moveFieldOption(option.id, -1)));
+    const down = li.querySelector('[data-down]');
+    if (down) down.addEventListener('click', () => run(() => Store.moveFieldOption(option.id, 1)));
+    const remove = li.querySelector('[data-remove]');
+    if (remove) remove.addEventListener('click', () => run(() => Store.deleteFieldOption(option.id)));
+
+    const labelEl = li.querySelector('[data-rename]');
+    if (labelEl) {
+      labelEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); labelEl.blur(); }
+      });
+      labelEl.addEventListener('blur', async () => {
+        const value = labelEl.textContent.trim();
+        if (!value || value === option.label) { labelEl.textContent = option.label; return; }
+        clearError();
+        try {
+          field = await Store.renameFieldOption(option.id, value);
+          paint();
+          if (onChange) onChange();
+        } catch (err) {
+          labelEl.textContent = option.label;
+          showError(err);
+        }
+      });
+    }
+    return li;
+  }
+
+  const addForm = modal.querySelector('[data-add]');
+  if (addForm) {
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = addForm.querySelector('[name=label]');
+      if (!input.value.trim()) return;
+      clearError();
+      try {
+        field = await Store.addFieldOption(field.id, input.value);
+        input.value = '';
+        input.focus();
+        paint();
+        if (onChange) onChange();
+      } catch (err) { showError(err); }
+    });
+  }
+
+  paint();
+}
+
+/* Screens admin (sub-project 2b) ----------------------------------------- */
+
+async function viewScreens() {
+  const main = outlet();
+  main.replaceChildren(tpl('tpl-screens'));
+
+  const list = main.querySelector('[data-list]');
+  const form = main.querySelector('[data-create-screen]');
+  const errorEl = main.querySelector('[data-create-error]');
+  const locked = main.querySelector('[data-locked]');
+  list.innerHTML = skeletonList(2);
+
+  let caps;
+  try { caps = await Store.getMyCapabilities(); }
+  catch (err) { list.innerHTML = ''; return handle(err); }
+
+  if (caps.can_manage_definitions) {
+    form.hidden = false;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      const input = form.querySelector('[name=name]');
+      try {
+        const screen = await Store.createScreen(input.value);
+        input.value = '';
+        toast(`"${screen.name}" added`);
+        await paintScreens(list, true);
+        // A screen with no fields does nothing, so go straight to filling it.
+        openScreenFieldsModal(screen.id, true, () => paintScreens(list, true));
+      } catch (err) {
+        errorEl.textContent = errorText(err);
+        errorEl.hidden = false;
+      }
+    });
+  } else {
+    locked.hidden = false;
+    locked.textContent =
+      "Only a project Owner can add or change screens — Owner of any project counts. " +
+      "Assigning one of these to a work item type is a per-project job, done on the project page.";
+  }
+
+  await paintScreens(list, caps.can_manage_definitions);
+}
+
+async function paintScreens(list, canManage) {
+  list.innerHTML = skeletonList(2);
+  try {
+    const screens = await Store.listScreens();
+    if (!screens.length) {
+      list.innerHTML = canManage
+        ? '<li class="empty">No screens yet. Name one above, then add fields to it.</li>'
+        : '<li class="empty">No screens have been created yet.</li>';
+      return;
+    }
+    const rows = screens.map(s => screenRow(s, list, canManage));
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+function screenRow(screen, list, canManage) {
+  const li = document.createElement('li');
+  li.className = 'admin-row';
+
+  const required = screen.fields.filter(f => f.required).length;
+  const bits = [
+    `${screen.fields.length} field${screen.fields.length === 1 ? '' : 's'}${required ? `, ${required} required` : ''}`,
+    screen.assigned_to.length
+      ? `used by ${screen.assigned_to.map(a => a.label).join(', ')}`
+      : 'not assigned anywhere',
+  ];
+
+  li.innerHTML =
+    `<span class="name" ${canManage ? 'contenteditable="true" data-rename' : ''}>${esc(screen.name)}</span>` +
+    `<span class="row-meta">${esc(bits.join(' · '))}</span>` +
+    `<span class="actions">` +
+      `<button class="btn" data-fields>Fields</button>` +
+      (canManage ? `<button class="btn btn-danger" data-delete>Delete</button>` : '') +
+    `</span>`;
+
+  const nameEl = li.querySelector('[data-rename]');
+  if (nameEl) {
+    nameEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+    });
+    nameEl.addEventListener('blur', async () => {
+      const value = nameEl.textContent.trim();
+      if (!value || value === screen.name) { nameEl.textContent = screen.name; return; }
+      try {
+        await Store.renameScreen(screen.id, value);
+        screen.name = value;
+        toast('Screen renamed');
+        await paintScreens(list, canManage);
+      } catch (err) {
+        nameEl.textContent = screen.name;
+        handle(err);
+      }
+    });
+  }
+
+  li.querySelector('[data-fields]').addEventListener('click', () =>
+    openScreenFieldsModal(screen.id, canManage, () => paintScreens(list, canManage)));
+
+  const deleteBtn = li.querySelector('[data-delete]');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        await Store.deleteScreen(screen.id);
+        toast(`"${screen.name}" deleted`);
+        await paintScreens(list, canManage);
+      } catch (err) { handle(err); }
+    });
+  }
+
+  return li;
+}
+
+/* A screen's ordered field list, with the per-screen `required` toggle. */
+
+async function openScreenFieldsModal(screenId, canManage, onChange) {
+  let screen, allFields;
+  try {
+    [screen, allFields] = await Promise.all([Store.getScreen(screenId), Store.listFields()]);
+  } catch (err) { return handle(err); }
+
+  const body =
+    `<div class="modal-head">` +
+      `<p class="eyebrow">Screen · ${esc(screen.name)}</p>` +
+      `<button class="btn btn-quiet" data-close>Close</button>` +
+    `</div>` +
+    `<p class="hint">This order is the order the fields appear on the work item form. <strong>Required</strong> is per screen — the same field can be required here and optional on another screen.</p>` +
+    `<ul class="order-list" data-fields></ul>` +
+    `<p class="form-error" data-error hidden></p>` +
+    (canManage
+      ? `<form class="add-row" data-add novalidate>` +
+          `<select name="field" aria-label="Field to add" data-add-select></select>` +
+          `<button class="btn" type="submit">Add field</button>` +
+        `</form>`
+      : `<p class="hint">Only a project Owner can change these.</p>`) +
+    `<p class="hint" data-assigned></p>`;
+
+  const { modal } = openModal(body);
+  const listEl = modal.querySelector('[data-fields]');
+  const errorEl = modal.querySelector('[data-error]');
+  const assignedEl = modal.querySelector('[data-assigned]');
+  const addForm = modal.querySelector('[data-add]');
+  const addSelect = modal.querySelector('[data-add-select]');
+  const clearError = () => { errorEl.hidden = true; };
+  const showError = (err) => { errorEl.textContent = errorText(err); errorEl.hidden = false; };
+
+  function paint() {
+    if (!screen.fields.length) {
+      listEl.innerHTML = '<li class="empty-inline">No fields on this screen yet. Until there are, assigning it to a work item type changes nothing.</li>';
+    } else {
+      listEl.replaceChildren(...screen.fields.map(screenFieldRow));
+    }
+
+    assignedEl.textContent = screen.assigned_to.length
+      ? `In use on ${screen.assigned_to.map(a => a.label).join(', ')}.`
+      : 'Not assigned to any project’s work item type yet.';
+
+    if (addSelect) {
+      const onScreen = new Set(screen.fields.map(r => r.field.id));
+      const available = allFields.filter(f => !onScreen.has(f.id));
+      addSelect.replaceChildren(...available.map(f => {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = `${f.name} · ${f.type_label}`;
+        return opt;
+      }));
+      const none = !available.length;
+      addSelect.disabled = none;
+      addForm.querySelector('button').disabled = none;
+      if (none) {
+        const opt = document.createElement('option');
+        opt.textContent = 'Every custom field is already on this screen';
+        addSelect.replaceChildren(opt);
+      }
+    }
+  }
+
+  function screenFieldRow(row, i) {
+    const last = i === screen.fields.length - 1;
+    const li = document.createElement('li');
+    li.className = 'order-row';
+    li.innerHTML =
+      (canManage
+        ? `<span class="order-handle">` +
+            `<button class="icon-btn" data-up ${i === 0 ? 'disabled' : ''} aria-label="Move up" type="button">▲</button>` +
+            `<button class="icon-btn" data-down ${last ? 'disabled' : ''} aria-label="Move down" type="button">▼</button>` +
+          `</span>`
+        : '') +
+      `<span class="pos-index">${i + 1}</span>` +
+      `<span class="label">${esc(row.field.name)}</span>` +
+      `<span class="type-badge ft">${esc(row.field.type_label)}</span>` +
+      (canManage
+        ? `<label class="req-toggle ${row.required ? 'is-on' : ''}" data-required>` +
+            `<input type="checkbox" ${row.required ? 'checked' : ''}>Required</label>`
+        : `<span class="req-toggle ${row.required ? 'is-on' : ''}">${row.required ? 'Required' : 'Optional'}</span>`) +
+      (canManage ? `<button class="btn btn-danger" data-remove type="button">Remove</button>` : '');
+
+    const run = async (fn) => {
+      clearError();
+      try {
+        screen = await fn();
+        paint();
+        if (onChange) onChange();
+      } catch (err) { showError(err); }
+    };
+
+    const up = li.querySelector('[data-up]');
+    if (up) up.addEventListener('click', () => run(() => Store.moveScreenField(row.id, -1)));
+    const down = li.querySelector('[data-down]');
+    if (down) down.addEventListener('click', () => run(() => Store.moveScreenField(row.id, 1)));
+    const remove = li.querySelector('[data-remove]');
+    if (remove) remove.addEventListener('click', () => run(() => Store.removeScreenField(row.id)));
+
+    const toggle = li.querySelector('[data-required] input');
+    if (toggle) {
+      toggle.addEventListener('change', () => run(() => Store.setScreenFieldRequired(row.id, toggle.checked)));
+    }
+    return li;
+  }
+
+  if (addForm) {
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!addSelect.value) return;
+      clearError();
+      try {
+        screen = await Store.addScreenField(screen.id, Number(addSelect.value));
+        paint();
+        if (onChange) onChange();
+      } catch (err) { showError(err); }
+    });
+  }
+
+  paint();
+}
+
+/* Custom field controls on a work item form ------------------------------
+   One renderer, used by both the work item modal and the board's inline
+   "add work item" form, so a field looks and behaves the same wherever it
+   is filled in. */
+
+const CF_WIDE_TYPES = ['text_long', 'multiselect'];
+
+function customFieldControl(row, value, members) {
+  const field = row.field;
+  const name = `cf-${field.id}`;
+  const req = row.required ? '<em class="req">required</em>' : '';
+  const wide = CF_WIDE_TYPES.includes(field.field_type);
+  let control;
+  let tag = 'label';   // a <label> wraps a single control; a <div> wraps many
+
+  switch (field.field_type) {
+    case 'text_long':
+      control = `<textarea name="${name}" data-cf="${field.id}" rows="3">${esc(value || '')}</textarea>`;
+      break;
+    case 'number':
+      control = `<input type="number" step="any" name="${name}" data-cf="${field.id}" value="${esc(value == null ? '' : value)}">`;
+      break;
+    case 'date':
+      control = `<input type="date" name="${name}" data-cf="${field.id}" value="${esc(value || '')}">`;
+      break;
+    case 'select':
+      control =
+        `<select name="${name}" data-cf="${field.id}"><option value="">—</option>` +
+        field.options.map(o =>
+          `<option value="${o.id}" ${String(value) === String(o.id) ? 'selected' : ''}>${esc(o.label)}</option>`
+        ).join('') +
+        `</select>`;
+      break;
+    case 'multiselect': {
+      tag = 'div';
+      const chosen = (value || []).map(String);
+      control =
+        `<div class="chip-check-list" data-cf="${field.id}">` +
+        (field.options.length
+          ? field.options.map(o => {
+              const on = chosen.includes(String(o.id));
+              return `<label class="chip-check ${on ? 'is-checked' : ''}">` +
+                `<input type="checkbox" value="${o.id}" ${on ? 'checked' : ''}>${esc(o.label)}</label>`;
+            }).join('')
+          : `<p class="empty-inline">No options defined yet — add some under Fields.</p>`) +
+        `</div>`;
+      break;
+    }
+    case 'checkbox': {
+      tag = 'div';
+      const on = value === true;
+      control =
+        `<div class="chip-check-list" data-cf="${field.id}">` +
+          `<label class="chip-check ${on ? 'is-checked' : ''}">` +
+            `<input type="checkbox" ${on ? 'checked' : ''}>Yes</label>` +
+        `</div>`;
+      break;
+    }
+    case 'user_picker':
+      control =
+        `<select name="${name}" data-cf="${field.id}"><option value="">—</option>` +
+        members.map(m =>
+          `<option value="${m.user_detail.id}" ${String(value) === String(m.user_detail.id) ? 'selected' : ''}>${esc(m.user_detail.display_name)}</option>`
+        ).join('') +
+        `</select>`;
+      break;
+    default:
+      control = `<input type="text" name="${name}" data-cf="${field.id}" value="${esc(value == null ? '' : value)}">`;
+  }
+
+  return `<${tag} class="field cf-field${wide ? ' cf-wide' : ''}" data-cf-wrap="${field.id}">` +
+    `<span>${esc(field.name)}${req}</span>${control}` +
+    `<span class="field-error" data-cf-error="${field.id}" hidden></span>` +
+    `</${tag}>`;
+}
+
+function customFieldControls(rows, values, members) {
+  return rows.map(row =>
+    customFieldControl(row, values ? values[row.field.id] : undefined, members)
+  ).join('');
+}
+
+// Reads the controls back into the { fieldId: value } shape the store (and
+// the real API) expects: a list for multiselect, a boolean for checkbox, an
+// id for select/user_picker, the raw string otherwise.
+function readCustomFieldInputs(scope, rows) {
+  const out = {};
+  rows.forEach(row => {
+    const field = row.field;
+    const el = scope.querySelector(`[data-cf="${field.id}"]`);
+    if (!el) return;
+    if (field.field_type === 'multiselect') {
+      out[field.id] = Array.from(el.querySelectorAll('input:checked')).map(i => Number(i.value));
+    } else if (field.field_type === 'checkbox') {
+      const box = el.querySelector('input');
+      out[field.id] = !!(box && box.checked);
+    } else if (field.field_type === 'select' || field.field_type === 'user_picker') {
+      out[field.id] = el.value ? Number(el.value) : null;
+    } else {
+      out[field.id] = el.value;
+    }
+  });
+  return out;
+}
+
+function bindChipChecks(scope) {
+  scope.querySelectorAll('.chip-check').forEach(chip => {
+    const input = chip.querySelector('input');
+    if (!input || chip.dataset.bound) return;
+    chip.dataset.bound = '1';
+    input.addEventListener('change', () => chip.classList.toggle('is-checked', input.checked));
+  });
+}
+
+function clearCustomFieldErrors(scope) {
+  scope.querySelectorAll('[data-cf-error]').forEach(el => { el.hidden = true; el.textContent = ''; });
+  scope.querySelectorAll('.cf-field.has-error').forEach(el => el.classList.remove('has-error'));
+}
+
+// Puts each complaint under the control that caused it, rather than only
+// showing the first one at the top of the form.
+function applyCustomFieldErrors(scope, errors) {
+  clearCustomFieldErrors(scope);
+  Object.keys(errors || {}).forEach(fieldId => {
+    const el = scope.querySelector(`[data-cf-error="${fieldId}"]`);
+    if (!el) return;
+    el.textContent = errors[fieldId];
+    el.hidden = false;
+    const wrap = scope.querySelector(`[data-cf-wrap="${fieldId}"]`);
+    if (wrap) wrap.classList.add('has-error');
+  });
+  const first = scope.querySelector('.cf-field.has-error');
+  if (first) first.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 /* Board — work items (sub-project 2a) ------------------------------------ */
 
 let boardState = { projectId: null, boardId: null, buckets: null };
@@ -705,7 +1433,10 @@ function addWorkItemControl(status) {
   btn.textContent = '+ Add work item';
   wrap.appendChild(btn);
 
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
+    let members = [];
+    try { members = await Store.listMembers(boardState.projectId); } catch (err) { /* proceed without user_picker options */ }
+
     const form = document.createElement('form');
     form.className = 'add-wi-form';
     form.innerHTML =
@@ -714,12 +1445,14 @@ function addWorkItemControl(status) {
       }</select>` +
       `<input name="title" placeholder="What needs doing?" aria-label="Title">` +
       `<select name="parent" aria-label="Parent"><option value="">No parent</option></select>` +
+      `<div class="cf-grid" data-cf-container></div>` +
       `<p class="form-error" data-error hidden></p>`;
     wrap.replaceChildren(form);
 
     const typeSelect = form.querySelector('[name=item_type]');
     const parentSelect = form.querySelector('[name=parent]');
     const titleInput = form.querySelector('[name=title]');
+    const cfContainer = form.querySelector('[data-cf-container]');
     titleInput.focus();
 
     function refreshParentOptions() {
@@ -740,6 +1473,17 @@ function addWorkItemControl(status) {
     typeSelect.addEventListener('change', refreshParentOptions);
     refreshParentOptions();
 
+    let currentScreen = null;
+    async function refreshCustomFields() {
+      try { currentScreen = await Store.getScreenForItemType(boardState.projectId, typeSelect.value); }
+      catch (err) { currentScreen = null; }
+      const rows = currentScreen ? currentScreen.fields : [];
+      cfContainer.innerHTML = rows.length ? customFieldControls(rows, null, members) : '';
+      bindChipChecks(cfContainer);
+    }
+    typeSelect.addEventListener('change', refreshCustomFields);
+    await refreshCustomFields();
+
     const cancel = () => { if (!titleInput.value.trim()) wrap.replaceChildren(btn); };
     titleInput.addEventListener('blur', () => setTimeout(cancel, 150));
 
@@ -748,15 +1492,24 @@ function addWorkItemControl(status) {
       if (!titleInput.value.trim()) return;
       const errorEl = form.querySelector('[data-error]');
       errorEl.hidden = true;
+      clearCustomFieldErrors(form);
+      const payload = {
+        board: boardState.boardId, item_type: typeSelect.value, title: titleInput.value,
+        parent: parentSelect.value || null, status,
+      };
+      if (currentScreen && currentScreen.fields.length) {
+        payload.custom_fields = readCustomFieldInputs(form, currentScreen.fields);
+      }
       try {
-        await Store.createWorkItem({
-          board: boardState.boardId, item_type: typeSelect.value, title: titleInput.value,
-          parent: parentSelect.value || null, status,
-        });
+        await Store.createWorkItem(payload);
         await reloadBoard();
       } catch (err) {
-        errorEl.textContent = errorText(err);
-        errorEl.hidden = false;
+        if (err.field === 'custom_fields') {
+          applyCustomFieldErrors(form, err.errors);
+        } else {
+          errorEl.textContent = errorText(err);
+          errorEl.hidden = false;
+        }
       }
     });
   });
@@ -767,15 +1520,38 @@ function addWorkItemControl(status) {
 /* Work item detail modal -------------------------------------------------- */
 
 async function openWorkItemModal(itemId) {
-  let item, users, projectComponents, boardItems;
+  let item, users, projectComponents, boardItems, members;
   try {
-    [item, users, projectComponents, boardItems] = await Promise.all([
+    [item, users, projectComponents, boardItems, members] = await Promise.all([
       Store.getWorkItem(itemId),
       Store.listUsers(),
       Store.listComponents(boardState.projectId),
       Store.listBoardWorkItems(boardState.boardId),
+      Store.listMembers(boardState.projectId),
     ]);
   } catch (err) { return handle(err); }
+
+  let screen = null;
+  try { screen = await Store.getScreenForItemType(boardState.projectId, item.item_type); }
+  catch (err) { screen = null; }
+  const screenRows = screen ? screen.fields : [];
+  const screenFieldIds = new Set(screenRows.map(r => r.field.id));
+  const orphanedDetails = (item.custom_field_details || []).filter(d => !screenFieldIds.has(d.field.id));
+
+  const customFieldsHtml = screenRows.length
+    ? `<div class="custom-fields-block">
+        <h2>Custom fields</h2>
+        <div class="cf-grid">${customFieldControls(screenRows, item.custom_fields, members)}</div>
+      </div>`
+    : '';
+  const orphanedHtml = orphanedDetails.length
+    ? `<div class="custom-fields-block">
+        <h2>Other saved values</h2>
+        <ul class="cf-orphan-list">${orphanedDetails.map(d =>
+          `<li><span>${esc(d.field.name)}</span><span>${esc(d.display)}</span></li>`
+        ).join('')}</ul>
+      </div>`
+    : '';
 
   const assigneeOptions = users.map(u =>
     `<option value="${u.id}" ${item.assignee === u.id ? 'selected' : ''}>${esc(u.display_name)}</option>`
@@ -842,6 +1618,8 @@ async function openWorkItemModal(itemId) {
         <select name="parent"><option value="">No parent</option>${parentOptions}</select>
       </label>` : '<div></div>'}
     </div>
+    ${customFieldsHtml}
+    ${orphanedHtml}
     <p class="form-error" data-error hidden></p>
     <div class="modal-actions">
       <button class="btn btn-primary" data-save>Save changes</button>
@@ -884,7 +1662,8 @@ async function openWorkItemModal(itemId) {
 
   modal.querySelector('[data-save]').addEventListener('click', async () => {
     errorEl.hidden = true;
-    const componentIds = Array.from(modal.querySelectorAll('.chip-check input:checked')).map(i => Number(i.value));
+    clearCustomFieldErrors(modal);
+    const componentIds = Array.from(modal.querySelectorAll('.components-block .chip-check input:checked')).map(i => Number(i.value));
     const parentSelect = modal.querySelector('[name=parent]');
     const fields = {
       title: modal.querySelector('[name=title]').value,
@@ -896,14 +1675,19 @@ async function openWorkItemModal(itemId) {
       component_ids: componentIds,
     };
     if (parentSelect) fields.parent = parentSelect.value || null;
+    if (screenRows.length) fields.custom_fields = readCustomFieldInputs(modal, screenRows);
     try {
       await Store.updateWorkItem(item.id, fields);
       close();
       await reloadBoard();
       toast('Saved');
     } catch (err) {
-      errorEl.textContent = errorText(err);
-      errorEl.hidden = false;
+      if (err.field === 'custom_fields') {
+        applyCustomFieldErrors(modal, err.errors);
+      } else {
+        errorEl.textContent = errorText(err);
+        errorEl.hidden = false;
+      }
     }
   });
 
