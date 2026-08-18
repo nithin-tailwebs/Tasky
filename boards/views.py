@@ -350,12 +350,18 @@ class ProjectScreenAssignmentsView(APIView):
         if not can_manage_screen_assignments(role):
             raise PermissionDenied("Only this project's Owner or Admins can change screen assignments.")
 
+        if not isinstance(request.data, dict):
+            raise ValidationError({"detail": "Expected an object mapping item types to screen ids."})
+
         updates = {}
         for item_type, screen_id in request.data.items():
             if item_type not in WorkItem.ItemType.values:
                 raise ValidationError({item_type: "Invalid item type."})
-            if screen_id is not None and not Screen.objects.filter(pk=screen_id).exists():
-                raise ValidationError({item_type: "That screen no longer exists."})
+            if screen_id is not None:
+                if isinstance(screen_id, bool) or not isinstance(screen_id, int):
+                    raise ValidationError({item_type: "Invalid screen id."})
+                if not Screen.objects.filter(pk=screen_id).exists():
+                    raise ValidationError({item_type: "That screen no longer exists."})
             updates[item_type] = screen_id
 
         with transaction.atomic():

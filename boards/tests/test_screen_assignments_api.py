@@ -122,3 +122,38 @@ def test_deleting_a_screen_still_assigned_somewhere_is_rejected(auth_client, pro
     response = auth_client.delete(f"/api/screens/{screen.id}/")
     assert response.status_code == 400
     assert Screen.objects.filter(id=screen.id).exists()
+
+
+@pytest.mark.django_db
+def test_put_with_non_dict_body_is_rejected(auth_client, project):
+    response = auth_client.put(
+        f"/api/projects/{project.id}/screen-assignments/",
+        [1, 2, 3],
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "Expected an object" in str(response.json())
+
+
+@pytest.mark.django_db
+def test_put_with_string_screen_id_is_rejected(auth_client, project):
+    response = auth_client.put(
+        f"/api/projects/{project.id}/screen-assignments/",
+        {"task": "abc"},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert response.json()["task"] == "Invalid screen id."
+    assert not ProjectScreenAssignment.objects.filter(project=project, item_type="task").exists()
+
+
+@pytest.mark.django_db
+def test_put_with_boolean_screen_id_is_rejected(auth_client, project):
+    response = auth_client.put(
+        f"/api/projects/{project.id}/screen-assignments/",
+        {"task": True},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert response.json()["task"] == "Invalid screen id."
+    assert not ProjectScreenAssignment.objects.filter(project=project, item_type="task").exists()
