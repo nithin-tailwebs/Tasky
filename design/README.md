@@ -13,13 +13,15 @@ prototype of the whole product, not a one-off mockup.
 |---|---|---|
 | 1 — Projects & Membership | `../docs/superpowers/specs/2026-08-13-tasky-projects-membership-design.md` | Signed off, **shipped to production** (`../ui/`, `../projects/`) |
 | 2a — Work Item Hierarchy | `../docs/superpowers/specs/2026-08-14-tasky-work-item-hierarchy-design.md` | Signed off, **shipped to production** (`boards/models.py`, `../ui/`) |
-| 2b — Custom Fields & Screens | `../docs/superpowers/specs/2026-08-18-tasky-custom-fields-screens-design.md` | **Prototype below — awaiting sign-off** |
+| 2b — Custom Fields & Screens | `../docs/superpowers/specs/2026-08-18-tasky-custom-fields-screens-design.md` | Signed off, **shipped to production** (`boards/models.py`) |
+| 3 — Workflows | `../docs/superpowers/specs/2026-08-18-tasky-workflows-design.md` | Signed off — **backend implementation next** |
 
-Because sub-projects 1 and 2a already shipped, this prototype's Projects &
-Membership and Board/work-item screens are now mostly a faithful *replica*
-of what's live in `../ui/` — they exist here so sub-project 2b's new
-screens (Fields, Screens, custom field inputs on a work item) have
-somewhere real to hang off, not because that part still needs review.
+Because sub-projects 1, 2a and 2b already shipped, this prototype's Projects
+& Membership, Board/work-item, and Fields/Screens screens are now mostly a
+faithful *replica* of what's live in production — they exist here so
+sub-project 3's new screens (per-project Statuses, board columns that
+follow them) have somewhere real to hang off, not because that part still
+needs review.
 
 ## Run it
 
@@ -83,6 +85,29 @@ Sign in as `asha`, `kabir` or `lena` — any password works.
     saved value still shows, under "Other saved values", read-only, per
     the spec's "orphaned values stay visible" rule.
 
+## Sub-project 3 — Workflows
+
+12. **Back on the Tasky Redesign project page**, find the new "Statuses"
+    section. Every project starts with the same 3 defaults — To Do, In
+    Progress, Done. Rename one (click its name, edit, click away), reorder
+    with the ▲▼ buttons, and try recategorizing "In Progress" to Done via
+    its dropdown — notice the board's column coloring follows the category,
+    not the name.
+13. **Add a 4th status** — e.g. "Blocked", category In Progress — then open
+    the Sprint Board. It's now a 4-column board, and "Blocked" is colored
+    the same as "In Progress" since they share a category.
+14. **Try to delete a status that's holding a work item** (e.g. "To Do",
+    which `TASKY-2`/`TASKY-3`/`TASKY-4` sit in) — rejected, naming how many
+    items are in the way. Move those items off it first (open one, change
+    its Status in the modal), then delete succeeds.
+15. **Try to recategorize or delete the last status in a category** (e.g.
+    if Done only has one status left) — rejected. Every project must always
+    have at least one status in each of To Do / In Progress / Done.
+16. **Open a work item and change its Status via the dropdown** — the
+    board reflects the move on save. (There's no drag-and-drop in this
+    prototype — status changes go through the detail modal, same as every
+    other field here.)
+
 All state is in memory — refreshing the page resets it to the seed above.
 
 ## Files
@@ -95,15 +120,18 @@ All state is in memory — refreshing the page resets it to the seed above.
 | `js/store.js` | Mock data source. Enforces the same rules a real API would (see each spec's error table) |
 | `js/app.js` | Views, hash routing, modals, and the interaction polish (skeleton loading, staggered row entrances, animated modal/toast lifecycle) |
 
-## What to check when reviewing sub-project 2b
+## What to check when reviewing sub-project 3
 
-- Is one screen per item type (not separate create/edit/view screens)
-  enough, or did you want the create form and the detail view to differ?
-- Is "None" (built-in fields only) a good default for an item type with
-  no screen assigned, or should new projects require picking one?
-- Does "orphaned values stay visible, read-only, once a field drops off
-  the screen" match what you'd expect, or is that surprising/unwanted?
-- Are 8 field types the right set, or is something obviously missing
-  (e.g. a URL type) before this goes to backend?
+- Is "custom statuses, no transition rules" (any status can move to any
+  other) enough, or did you immediately want to restrict some moves (e.g.
+  can't skip straight from To Do to Done)?
+- Does the category system (To Do / In Progress / Done, many statuses per
+  category) match how you'd actually want to organize a busier board, or
+  does it feel like unnecessary structure for a small team?
+- Is per-project the right scope, or did clicking through make you want
+  different statuses for different item types (like 2b's Screens) or
+  different boards within one project?
+- Does "every category needs at least one status, always" read as a
+  sensible guardrail or an annoying restriction once you hit it?
 - Anything from the spec's data model or flows that reads wrong once
   you're actually clicking it, rather than reading it.
