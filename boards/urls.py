@@ -7,6 +7,8 @@ from .views import (
     ComponentViewSet,
     CustomFieldViewSet,
     FieldOptionViewSet,
+    ScreenFieldViewSet,
+    ScreenViewSet,
     WorkItemLinkViewSet,
     WorkItemViewSet,
 )
@@ -17,6 +19,7 @@ router.register("work-items", WorkItemViewSet, basename="work-item")
 router.register("comments", CommentViewSet, basename="comment")
 router.register("work-item-links", WorkItemLinkViewSet, basename="work-item-link")
 router.register("fields", CustomFieldViewSet, basename="custom-field")
+router.register("screens", ScreenViewSet, basename="screen")
 
 urlpatterns = router.urls + [
     path(
@@ -38,5 +41,15 @@ urlpatterns = router.urls + [
         "fields/<int:field_pk>/options/<int:pk>/",
         FieldOptionViewSet.as_view({"patch": "partial_update", "delete": "destroy"}),
         name="field-option-detail",
+    ),
+    path(
+        "screens/<int:screen_pk>/fields/",
+        ScreenFieldViewSet.as_view({"post": "create"}),
+        name="screen-fields",
+    ),
+    path(
+        "screens/<int:screen_pk>/fields/<int:pk>/",
+        ScreenFieldViewSet.as_view({"patch": "partial_update", "delete": "destroy"}),
+        name="screen-field-detail",
     ),
 ]

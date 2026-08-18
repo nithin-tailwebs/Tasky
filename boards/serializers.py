@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from accounts.serializers import UserSerializer
 
-from .models import Board, Comment, Component, CustomField, FieldOption, WorkItem, WorkItemLink
+from .models import Board, Comment, Component, CustomField, FieldOption, Screen, ScreenField, WorkItem, WorkItemLink
 
 VALID_PARENT_TYPES = {
     WorkItem.ItemType.EPIC: [],
@@ -92,6 +92,34 @@ class CustomFieldSerializer(serializers.ModelSerializer):
         if not clean:
             raise serializers.ValidationError("This field may not be blank.")
         qs = CustomField.objects.filter(name__iexact=clean)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(f'"{clean}" already exists.')
+        return clean
+
+
+class ScreenFieldSerializer(serializers.ModelSerializer):
+    field_detail = CustomFieldSerializer(source="field", read_only=True)
+
+    class Meta:
+        model = ScreenField
+        fields = ["id", "field", "field_detail", "position", "required"]
+        read_only_fields = ["position"]
+
+
+class ScreenSerializer(serializers.ModelSerializer):
+    fields = ScreenFieldSerializer(source="screen_fields", many=True, read_only=True)
+
+    class Meta:
+        model = Screen
+        fields = ["id", "name", "fields"]
+
+    def validate_name(self, value):
+        clean = value.strip()
+        if not clean:
+            raise serializers.ValidationError("This field may not be blank.")
+        qs = Screen.objects.filter(name__iexact=clean)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():

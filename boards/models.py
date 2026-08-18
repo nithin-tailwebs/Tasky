@@ -175,6 +175,32 @@ class FieldOption(models.Model):
         return f"{self.label} ({self.field})"
 
 
+class Screen(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ScreenField(models.Model):
+    screen = models.ForeignKey(Screen, on_delete=models.CASCADE, related_name="screen_fields")
+    field = models.ForeignKey(CustomField, on_delete=models.CASCADE, related_name="screen_fields")
+    position = models.IntegerField(default=0)
+    required = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["screen", "field"], name="unique_field_per_screen"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.field} on {self.screen}"
+
+
 class WorkItemLink(models.Model):
     """Symmetric — there is no "from"/"to" direction. item_a always holds
     the lower id, so (A, B) and (B, A) are the same row; enforced by the

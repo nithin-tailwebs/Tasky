@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from projects.models import ProjectMembership
 from projects.permissions import IsProjectMember
 
-from .models import Board, Comment, Component, CustomField, FieldOption, WorkItem, WorkItemLink
+from .models import Board, Comment, Component, CustomField, FieldOption, Screen, ScreenField, WorkItem, WorkItemLink
 from .serializers import (
     BoardSerializer,
     CommentSerializer,
@@ -18,6 +18,8 @@ from .serializers import (
     CustomFieldSerializer,
     FieldOptionSerializer,
     MoveWorkItemSerializer,
+    ScreenFieldSerializer,
+    ScreenSerializer,
     WorkItemLinkSerializer,
     WorkItemSerializer,
     WorkItemSummarySerializer,
@@ -349,13 +351,17 @@ class CustomFieldViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
-        # This is deliberately unguarded — `ScreenField` doesn't exist until
-        # Task 2, so there's nothing to check a field's usage against yet.
-        # Task 2 replaces this method with the real "still on a screen"
-        # guard once `ScreenField` exists.
         if not user_can_manage_definitions(self.request.user):
             raise PermissionDenied(
                 "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        screen_names = list(
+            ScreenField.objects.filter(field=instance).values_list("screen__name", flat=True).distinct()
+        )
+        if screen_names:
+            noun = "that screen" if len(screen_names) == 1 else "those screens"
+            raise ValidationError(
+                {"detail": f'"{instance.name}" is still on {", ".join(screen_names)}. Remove it from {noun} first.'}
             )
         instance.delete()
 
@@ -435,3 +441,98 @@ class FieldOptionViewSet(viewsets.ModelViewSet):
             if option.position != index:
                 option.position = index
                 option.save(update_fields=["position"])
+
+
+class ScreenViewSet(viewsets.ModelViewSet):
+    http_method_names = ["get", "post", "patch", "delete"]
+    serializer_class = ScreenSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    queryset = Screen.objects.prefetch_related("screen_fields__field__options").all()
+
+    def perform_create(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Unguarded for the same reason CustomFieldViewSet's was in Task 1:
+        # ProjectScreenAssignment doesn't exist until Task 3, so there's
+        # nothing to check a screen's assignment usage against yet. Task 3
+        # replaces this method with the real "still assigned" guard.
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        instance.delete()
+
+
+class ScreenFieldViewSet(viewsets.ModelViewSet):
+    http_method_names = ["post", "patch", "delete"]
+    serializer_class = ScreenFieldSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_screen(self):
+        return get_object_or_404(Screen, pk=self.kwargs["screen_pk"])
+
+    def get_queryset(self):
+        return ScreenField.objects.filter(screen_id=self.kwargs["screen_pk"])
+
+    def perform_create(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        screen = self.get_screen()
+        field = serializer.validated_data["field"]
+        if ScreenField.objects.filter(screen=screen, field=field).exists():
+            raise ValidationError({"field": f'"{field.name}" is already on this screen.'})
+        position = ScreenField.objects.filter(screen=screen).count()
+        serializer.save(screen=screen, position=position)
+
+    def perform_update(self, serializer):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        serializer.save()
+        if "position" in self.request.data:
+            self._reposition(serializer.instance)
+
+    def _reposition(self, instance):
+        try:
+            target = max(0, int(self.request.data["position"]))
+        except (TypeError, ValueError):
+            raise ValidationError({"position": "Must be a whole number."})
+        siblings = list(
+            ScreenField.objects.filter(screen=instance.screen).exclude(pk=instance.pk).order_by("position", "id")
+        )
+        target = min(target, len(siblings))
+        siblings.insert(target, instance)
+        for index, row in enumerate(siblings):
+            if row.position != index:
+                row.position = index
+                row.save(update_fields=["position"])
+
+    def perform_destroy(self, instance):
+        if not user_can_manage_definitions(self.request.user):
+            raise PermissionDenied(
+                "Only a project Owner can manage custom fields. You're not an Owner of any project."
+            )
+        screen = instance.screen
+        instance.delete()
+        siblings = list(ScreenField.objects.filter(screen=screen).order_by("position", "id"))
+        for index, row in enumerate(siblings):
+            if row.position != index:
+                row.position = index
+                row.save(update_fields=["position"])
