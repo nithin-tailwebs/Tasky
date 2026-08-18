@@ -367,3 +367,22 @@ def test_deleting_an_option_still_used_by_a_work_item_value_is_rejected(auth_cli
     response = auth_client.delete(f"/api/fields/{fields['select'].id}/options/{option.id}/")
     assert response.status_code == 400
     assert FieldOption.objects.filter(id=option.id).exists()
+
+
+@pytest.mark.django_db
+def test_the_database_rejects_a_duplicate_work_item_field_value(board):
+    """apply_custom_fields() de-dupes in Python before insert, so the
+    normal API path never actually attempts a duplicate row — it never
+    exercises the DB-level UniqueConstraint added via the migration's
+    RunSQL (needed because MySQL/InnoDB refuses a plain UNIQUE key over a
+    TextField without an explicit prefix length). This test bypasses the
+    application layer entirely and proves the constraint is really there
+    at the database level, independent of the Python-side dedup."""
+    from django.db import IntegrityError
+
+    field = CustomField.objects.create(name="Points", field_type="number", created_by=None)
+    item = WorkItem.objects.create(board=board, title="X")
+    WorkItemFieldValue.objects.create(work_item=item, field=field, value="5")
+
+    with pytest.raises(IntegrityError):
+        WorkItemFieldValue.objects.create(work_item=item, field=field, value="5")
