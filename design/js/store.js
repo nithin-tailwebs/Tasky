@@ -57,6 +57,22 @@ const Store = (() => {
     { id: id(), project: 1, name: 'Backend' },
   ];
 
+  // Workflows (sub-project 3) seed data — every project gets the same 3
+  // default statuses a real project would be seeded with, so a reviewer
+  // sees "no customization yet" as the normal starting state.
+  let workItemStatuses = [];
+  function seedStatuses(projectId) {
+    const todo = { id: id(), project: projectId, name: 'To Do', category: 'todo', position: 0 };
+    const inProgress = { id: id(), project: projectId, name: 'In Progress', category: 'in_progress', position: 1 };
+    const done = { id: id(), project: projectId, name: 'Done', category: 'done', position: 2 };
+    workItemStatuses.push(todo, inProgress, done);
+    return { todo, inProgress, done };
+  }
+  const taskyStatuses = seedStatuses(1);
+  seedStatuses(2);
+  seedStatuses(3);
+  seedStatuses(4);
+
   let workItems = [];
   function seedItem(o) {
     const item = Object.assign({
@@ -72,25 +88,25 @@ const Store = (() => {
   // the hierarchy and every valid parent shape from the seed alone.
   const epic = seedItem({
     id: id(), key: 'TASKY-1', board: board1.id, item_type: 'epic',
-    title: 'Redesign onboarding', status: 'in_progress', priority: 3, assignee: 1,
+    title: 'Redesign onboarding', status: taskyStatuses.inProgress.id, priority: 3, assignee: 1,
   });
   const story1 = seedItem({
     id: id(), key: 'TASKY-2', board: board1.id, item_type: 'story', parent: epic.id,
-    title: 'Design the welcome screen', status: 'todo', assignee: 3,
+    title: 'Design the welcome screen', status: taskyStatuses.todo.id, assignee: 3,
     component_ids: [components[0].id],
   });
   const task1 = seedItem({
     id: id(), key: 'TASKY-3', board: board1.id, item_type: 'task', parent: epic.id,
-    title: 'Wire up the onboarding API', status: 'todo', assignee: 2,
+    title: 'Wire up the onboarding API', status: taskyStatuses.todo.id, assignee: 2,
     component_ids: [components[1].id],
   });
   seedItem({
     id: id(), key: 'TASKY-4', board: board1.id, item_type: 'subtask', parent: story1.id,
-    title: 'Write the welcome copy', status: 'todo',
+    title: 'Write the welcome copy', status: taskyStatuses.todo.id,
   });
   const bug1 = seedItem({
     id: id(), key: 'TASKY-5', board: board1.id, item_type: 'bug',
-    title: 'Signup button misaligned on Safari', status: 'in_progress', priority: 3, assignee: 1,
+    title: 'Signup button misaligned on Safari', status: taskyStatuses.inProgress.id, priority: 3, assignee: 1,
   });
 
   let links = [
@@ -411,11 +427,16 @@ const Store = (() => {
 
   /* ---- work items ---- */
 
+  const statusById = (statusId) => workItemStatuses.find(s => s.id === statusId) || null;
+
   function decorateWorkItem(item) {
     const parent = item.parent ? workItems.find(w => w.id === item.parent) : null;
     const children = workItems
       .filter(w => w.parent === item.id)
-      .map(c => ({ id: c.id, key: c.key, title: c.title, item_type: c.item_type, status: c.status }));
+      .map(c => ({
+        id: c.id, key: c.key, title: c.title, item_type: c.item_type,
+        status: c.status, status_detail: statusById(c.status),
+      }));
     const custom = customFieldsOf(item.id);
     return Object.assign({}, item, {
       // `custom_fields` is the API's read/write shape; `custom_field_details`
@@ -425,6 +446,7 @@ const Store = (() => {
       assignee_detail: item.assignee ? userById(item.assignee) : null,
       created_by_detail: userById(item.created_by),
       priority_label: { 1: 'Low', 2: 'Medium', 3: 'High' }[item.priority],
+      status_detail: statusById(item.status),
       parent_detail: parent
         ? { id: parent.id, key: parent.key, title: parent.title, item_type: parent.item_type }
         : null,
@@ -484,13 +506,22 @@ const Store = (() => {
     const hErr = hierarchyError(fields.item_type, parent);
     if (hErr) return fail(400, hErr);
 
+    let status;
+    if (fields.status) {
+      status = workItemStatuses.find(s => s.id === Number(fields.status));
+      if (!status) return fail(400, 'Status not found.');
+      if (status.project !== board.project) return fail(400, 'Status must belong to this item\'s project.');
+    } else {
+      status = defaultStatusFor(board.project);
+    }
+
     const cfErr = customFieldsError(board.project, fields.item_type, fields.custom_fields);
     if (cfErr) return failCustomFields(cfErr.message, cfErr.errors);
 
     const item = seedItem({
       id: id(), key: nextKey(board.project), board: board.id, item_type: fields.item_type,
       title: fields.title.trim(), description: fields.description || '',
-      status: fields.status || 'todo', priority: fields.priority || 2,
+      status: status.id, priority: fields.priority || 2,
       due_date: fields.due_date || null, assignee: fields.assignee || null,
       parent: parent ? parent.id : null, component_ids: fields.component_ids || [],
       created_by: me.id,
@@ -536,10 +567,20 @@ const Store = (() => {
       if (cfErr) return failCustomFields(cfErr.message, cfErr.errors);
     }
 
+    let newStatus;
+    if ('status' in fields) {
+      newStatus = workItemStatuses.find(s => s.id === Number(fields.status));
+      if (!newStatus) return fail(400, 'Status not found.');
+      if (newStatus.project !== boardProjectId(item.board)) {
+        return fail(400, 'Status must belong to this item\'s project.');
+      }
+    }
+
     if ('title' in fields) item.title = fields.title.trim();
-    ['description', 'status', 'priority', 'due_date', 'assignee', 'component_ids'].forEach(f => {
+    ['description', 'priority', 'due_date', 'assignee', 'component_ids'].forEach(f => {
       if (f in fields) item[f] = fields[f];
     });
+    if (newStatus) item.status = newStatus.id;
     if (newParent !== undefined) item.parent = newParent ? newParent.id : null;
     if ('custom_fields' in fields) applyCustomFields(item.id, fields.custom_fields);
 
@@ -597,6 +638,104 @@ const Store = (() => {
     }
     components = components.filter(c => c.id !== component.id);
     workItems.forEach(w => { w.component_ids = w.component_ids.filter(cid => cid !== component.id); });
+    return wait(null);
+  }
+
+  /* ---- workflows: per-project work item statuses (sub-project 3) ------- */
+
+  const statusesFor = (projectId) =>
+    workItemStatuses.filter(s => s.project === Number(projectId)).sort(byPosition);
+
+  // The status a brand-new work item lands in when none is given —
+  // the lowest-position status in the todo category, i.e. the leftmost
+  // column.
+  const defaultStatusFor = (projectId) =>
+    statusesFor(projectId).find(s => s.category === 'todo');
+
+  function requireStatusManager(projectId) {
+    if (!Logic.canManageStatuses(myRole(projectId))) {
+      throw Object.assign(
+        new Error("You don't have permission to manage this project's statuses."), { status: 403 },
+      );
+    }
+  }
+
+  function listStatuses(projectId) {
+    try { requireMember(projectId); } catch (err) { return Promise.reject(err); }
+    return wait(statusesFor(projectId));
+  }
+
+  function createStatus(projectId, { name, category }) {
+    try { requireStatusManager(projectId); } catch (err) { return Promise.reject(err); }
+    const clean = (name || '').trim();
+    if (!clean) return fail(400, 'This field may not be blank.');
+    if (!Logic.CATEGORIES.includes(category)) return fail(400, 'Pick a category.');
+    if (workItemStatuses.some(s => s.project === Number(projectId) && s.name.toLowerCase() === clean.toLowerCase())) {
+      return fail(400, `"${clean}" already exists.`);
+    }
+    const status = {
+      id: id(), project: Number(projectId), name: clean, category,
+      position: statusesFor(projectId).length,
+    };
+    workItemStatuses.push(status);
+    return wait(status);
+  }
+
+  // `category` is the only field a "would leave a category empty" guard
+  // applies to — renaming never can, since the status itself still exists.
+  function updateStatus(statusId, { name, category }) {
+    const status = workItemStatuses.find(s => s.id === Number(statusId));
+    if (!status) return fail(404, 'Not found.');
+    try { requireStatusManager(status.project); } catch (err) { return Promise.reject(err); }
+
+    if (name !== undefined) {
+      const clean = (name || '').trim();
+      if (!clean) return fail(400, 'This field may not be blank.');
+      if (workItemStatuses.some(s => s.project === status.project && s.id !== status.id && s.name.toLowerCase() === clean.toLowerCase())) {
+        return fail(400, `"${clean}" already exists.`);
+      }
+      status.name = clean;
+    }
+    if (category !== undefined && category !== status.category) {
+      if (!Logic.CATEGORIES.includes(category)) return fail(400, 'Pick a category.');
+      const remaining = statusesFor(status.project).filter(s => s.category === status.category && s.id !== status.id);
+      if (!remaining.length) {
+        return fail(400, `${Logic.CATEGORY_LABELS[status.category]} needs at least one status — recategorize another one first.`);
+      }
+      status.category = category;
+    }
+    return wait(status);
+  }
+
+  function moveStatus(statusId, delta) {
+    const status = workItemStatuses.find(s => s.id === Number(statusId));
+    if (!status) return fail(404, 'Not found.');
+    try { requireStatusManager(status.project); } catch (err) { return Promise.reject(err); }
+    const siblings = statusesFor(status.project);
+    const from = siblings.indexOf(status);
+    const to = from + Number(delta);
+    if (to < 0 || to >= siblings.length) return wait(status);
+    siblings.splice(from, 1);
+    siblings.splice(to, 0, status);
+    siblings.forEach((s, i) => { s.position = i; });
+    return wait(status);
+  }
+
+  function deleteStatus(statusId) {
+    const status = workItemStatuses.find(s => s.id === Number(statusId));
+    if (!status) return fail(404, 'Not found.');
+    try { requireStatusManager(status.project); } catch (err) { return Promise.reject(err); }
+
+    const inUse = workItems.filter(w => w.status === status.id);
+    if (inUse.length) {
+      return fail(400, `"${status.name}" is still used by ${inUse.length} work item${inUse.length === 1 ? '' : 's'}. Move ${inUse.length === 1 ? 'it' : 'them'} first.`);
+    }
+    const remaining = statusesFor(status.project).filter(s => s.category === status.category && s.id !== status.id);
+    if (!remaining.length) {
+      return fail(400, `${Logic.CATEGORY_LABELS[status.category]} needs at least one status.`);
+    }
+    workItemStatuses = workItemStatuses.filter(s => s.id !== status.id);
+    renumber(statusesFor(status.project));
     return wait(null);
   }
 
@@ -1158,6 +1297,7 @@ const Store = (() => {
     listBoards, createBoard, getBoard,
     listBoardWorkItems, getWorkItem, createWorkItem, updateWorkItem, deleteWorkItem,
     listComponents, createComponent, renameComponent, deleteComponent,
+    listStatuses, createStatus, updateStatus, moveStatus, deleteStatus,
     listLinks, createLink, deleteLink,
     listUsers,
     getMyCapabilities, listFieldTypes,

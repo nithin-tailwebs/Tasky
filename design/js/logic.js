@@ -1,10 +1,11 @@
 /* Tasky — Projects & Membership + Work Item Hierarchy + Custom Fields
-   & Screens prototype.
+   & Screens + Workflows prototype.
    Pure role-permission, hierarchy and field-validation rules; no DOM, no
    network — mirrors the matrices in
    docs/superpowers/specs/2026-08-13-...-membership-design.md,
-   docs/superpowers/specs/2026-08-14-...-work-item-hierarchy-design.md and
-   docs/superpowers/specs/2026-08-18-...-custom-fields-screens-design.md
+   docs/superpowers/specs/2026-08-14-...-work-item-hierarchy-design.md,
+   docs/superpowers/specs/2026-08-18-...-custom-fields-screens-design.md and
+   docs/superpowers/specs/2026-08-18-...-workflows-design.md
    exactly, so this file IS those specs' rule tables, executable. */
 
 const Logic = (() => {
@@ -47,8 +48,16 @@ const Logic = (() => {
 
   const canManageComponents = (role) => role === 'owner' || role === 'admin';
 
-  const STATUSES = ['todo', 'in_progress', 'done'];
-  const STATUS_LABELS = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
+  /* ---- Workflows (sub-project 3) ---------------------------------------- */
+
+  // Fixed, three-value vocabulary every status (built-in or custom) is
+  // tagged with — this is what "done-ness" logic keys off, not the status's
+  // name. Many statuses can share a category (e.g. "Blocked" and "In
+  // Review" both tagged in_progress alongside "In Progress" itself).
+  const CATEGORIES = ['todo', 'in_progress', 'done'];
+  const CATEGORY_LABELS = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
+
+  const canManageStatuses = (role) => role === 'owner' || role === 'admin';
 
   /* ---- Custom fields & screens (sub-project 2b) ------------------------ */
 
@@ -182,7 +191,7 @@ const Logic = (() => {
     canTransferOwnership, canDeleteProject, canLeave,
     ITEM_TYPES, ITEM_TYPE_LABEL, VALID_PARENT_TYPES,
     requiresParent, canHaveParent, isValidParent, canManageComponents,
-    STATUSES, STATUS_LABELS,
+    CATEGORIES, CATEGORY_LABELS, canManageStatuses,
     FIELD_TYPES, FIELD_TYPE_LABEL, FIELD_TYPE_HINT,
     fieldHasOptions, isMultiValue,
     canManageDefinitions, canManageScreenAssignments,

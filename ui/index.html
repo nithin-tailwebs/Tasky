@@ -17,7 +17,7 @@
     <form class="login-card" novalidate>
       <p class="eyebrow">Tasky</p>
       <h1>Sign in</h1>
-      <p class="login-note">Accounts are created by an admin. Ask one of them if you don't have one yet.</p>
+      <p class="login-note">Accounts are created by an admin. Membership in any project is invite-only.</p>
       <label class="field">
         <span>Username</span>
         <input name="username" autocomplete="username" autofocus required>
@@ -28,16 +28,16 @@
       </label>
       <p class="form-error" data-error hidden></p>
       <button class="btn btn-primary" type="submit">Sign in</button>
-      <p class="login-hint">Mock data: <code>asha</code> / any password</p>
+      <p class="login-hint">Mock data: <code>asha</code>, <code>kabir</code> or <code>lena</code> — any password</p>
     </form>
   </div>
 </template>
 
 <template id="tpl-shell">
   <header class="topbar">
-    <a class="brand" href="#/boards">Tasky</a>
+    <a class="brand" href="#/projects">Tasky</a>
     <nav class="nav">
-      <a href="#/boards" data-nav="boards">Boards</a>
+      <a href="#/projects" data-nav="projects">Projects</a>
       <a href="#/my-tasks" data-nav="my-tasks">My tasks</a>
     </nav>
     <div class="topbar-end">
@@ -48,19 +48,70 @@
   <main class="main" data-main></main>
 </template>
 
-<template id="tpl-boards">
+<template id="tpl-projects">
   <div class="page page-narrow">
     <div class="page-head">
-      <h1>Boards</h1>
-      <p class="page-sub">Everyone on the team sees every board.</p>
+      <h1>Projects</h1>
+      <p class="page-sub">Everything you're a member of. No one joins without an invite.</p>
     </div>
 
-    <form class="inline-create" data-create-board>
-      <input name="name" placeholder="Name a new board" aria-label="New board name" required>
-      <button class="btn btn-primary" type="submit">Create board</button>
-    </form>
+    <section class="invitations" data-invitations hidden>
+      <h2 class="section-label">Pending invitations</h2>
+      <ul class="invite-list" data-invite-list></ul>
+    </section>
 
-    <ul class="board-list" data-list></ul>
+    <form class="create-project" data-create-project novalidate>
+      <input name="name" placeholder="Project name" aria-label="Project name" required>
+      <input name="key" placeholder="KEY" aria-label="Project key" maxlength="10" class="key-input" required>
+      <button class="btn btn-primary" type="submit">Create project</button>
+    </form>
+    <p class="form-error" data-create-error hidden></p>
+
+    <ul class="project-list" data-list></ul>
+  </div>
+</template>
+
+<template id="tpl-project">
+  <div class="page">
+    <div class="board-head">
+      <div>
+        <a class="back" href="#/projects">All projects</a>
+        <div class="project-title-row">
+          <h1 data-project-name></h1>
+          <span class="key-pill" data-project-key></span>
+          <span class="role-badge" data-my-role></span>
+        </div>
+        <p class="page-sub" data-project-desc></p>
+      </div>
+      <div class="project-head-actions">
+        <select class="switcher" data-switcher aria-label="Switch project"></select>
+        <div class="page-actions" data-actions></div>
+      </div>
+    </div>
+
+    <section>
+      <h2 class="section-label">Boards</h2>
+      <form class="create-board" data-create-board novalidate>
+        <input name="name" placeholder="Board name" aria-label="Board name" required>
+        <button class="btn" type="submit">Create board</button>
+      </form>
+      <ul class="board-list" data-boards></ul>
+    </section>
+
+    <section>
+      <h2 class="section-label">Components</h2>
+      <p class="page-sub section-note" data-component-note></p>
+      <ul class="component-list" data-components></ul>
+      <form class="create-component" data-create-component novalidate hidden>
+        <input name="name" placeholder="Component name" aria-label="Component name" required>
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </section>
+
+    <section>
+      <h2 class="section-label">Members</h2>
+      <ul class="member-list" data-members></ul>
+    </section>
   </div>
 </template>
 
@@ -68,16 +119,22 @@
   <div class="page">
     <div class="board-head">
       <div>
-        <a class="back" href="#/boards">All boards</a>
-        <h1 data-board-name></h1>
+        <a class="back" data-back-link href="#/projects">Project</a>
+        <div class="project-title-row">
+          <h1 data-board-name></h1>
+          <span class="key-pill" data-board-project></span>
+        </div>
         <p class="page-sub" data-board-desc></p>
       </div>
-      <p class="legend">
-        <span class="legend-item"><i class="rule-demo p1"></i>Low</span>
-        <span class="legend-item"><i class="rule-demo p2"></i>Medium</span>
-        <span class="legend-item"><i class="rule-demo p3"></i>High</span>
-        <span class="legend-item"><i class="rule-demo overdue"></i>Overdue</span>
-      </p>
+      <div class="legend-stack">
+        <p class="legend" data-type-legend></p>
+        <p class="legend">
+          <span class="legend-item"><i class="rule-demo p1"></i>Low</span>
+          <span class="legend-item"><i class="rule-demo p2"></i>Medium</span>
+          <span class="legend-item"><i class="rule-demo p3"></i>High</span>
+          <span class="legend-item"><i class="rule-demo overdue"></i>Overdue</span>
+        </p>
+      </div>
     </div>
     <div class="columns" data-columns></div>
   </div>
@@ -87,7 +144,7 @@
   <div class="page page-narrow">
     <div class="page-head">
       <h1>My tasks</h1>
-      <p class="page-sub">Everything open and assigned to you, soonest due first.</p>
+      <p class="page-sub">Everything open and assigned to you, across every project, soonest due first.</p>
     </div>
     <ul class="task-list" data-list></ul>
   </div>

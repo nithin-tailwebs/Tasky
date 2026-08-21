@@ -469,6 +469,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .type-dot.type-bug     { background: var(--type-bug); }
 .type-dot.type-subtask { background: var(--type-subtask); }
 
+/* Workflow status categories (sub-project 3) — the same three colours the
+   board's columns already use (.column-active / .column-done), pulled out
+   as standalone dots for the Statuses management list. */
+.cat-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--rule-2);
+}
+.cat-dot.cat-in_progress { background: var(--accent); }
+.cat-dot.cat-done { background: var(--ink-3); }
+
 .type-badge {
   font-family: var(--mono);
   font-size: 9px;
@@ -492,7 +504,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .columns {
   display: grid;
-  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
   align-items: start;
 }
@@ -690,15 +702,15 @@ button, input, textarea, select { font: inherit; color: inherit; }
    chip-check as the components picker — so the admin screens read as part
    of the app rather than a separate settings product. */
 
-.create-field, .create-screen { display: flex; gap: 8px; margin: 0 0 8px; }
-.create-field input, .create-screen input {
+.create-field, .create-screen, .create-status { display: flex; gap: 8px; margin: 0 0 8px; }
+.create-field input, .create-screen input, .create-status input {
   flex: 1;
   background: var(--surface);
   border: 1px solid var(--rule-2);
   border-radius: var(--r);
   padding: 7px 10px;
 }
-.create-field select {
+.create-field select, .create-status select {
   background: var(--surface);
   border: 1px solid var(--rule-2);
   border-radius: var(--r);
@@ -944,7 +956,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .columns { grid-template-columns: 1fr; }
   .grid-3 { grid-template-columns: 1fr; }
   .cf-grid { grid-template-columns: 1fr; }
-  .create-field { flex-direction: column; }
+  .create-field, .create-status { flex-direction: column; }
   .admin-row { flex-wrap: wrap; }
   .admin-row .row-meta { margin-left: 0; text-align: left; }
   .assign-row { flex-wrap: wrap; }

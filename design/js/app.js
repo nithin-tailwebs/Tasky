@@ -259,6 +259,7 @@ async function viewProject(projectId) {
     renderProjectActions(main, project);
     await renderBoards(main, projectId);
     await renderComponents(main, projectId, project.my_role);
+    await renderStatuses(main, projectId, project.my_role);
     await renderScreenAssignments(main, projectId, project.my_role);
     await renderMembers(main, projectId, project.my_role);
     await renderPendingInvites(main, projectId, project.my_role);
@@ -376,6 +377,105 @@ function componentRow(component, projectId, myRole) {
         toast('Component deleted');
         await renderComponents(outlet(), projectId, myRole);
       } catch (err) { handle(err); }
+    });
+  }
+  return li;
+}
+
+/* Workflows: per-project work item statuses (sub-project 3) ---------------
+   These ARE the board's columns — rendered here as an ordered, hand-sorted
+   list (same shape as a Screen's field list from 2b) so reordering, renaming
+   and recategorizing all read as one idea. */
+
+async function renderStatuses(main, projectId, myRole) {
+  const list = main.querySelector('[data-statuses]');
+  const form = main.querySelector('[data-create-status]');
+  const canManage = Logic.canManageStatuses(myRole);
+  form.hidden = !canManage;
+  list.innerHTML = skeletonList(1);
+
+  const categorySelect = form.querySelector('[data-category-select]');
+  categorySelect.innerHTML = Logic.CATEGORIES.map(c =>
+    `<option value="${c}">${Logic.CATEGORY_LABELS[c]}</option>`
+  ).join('');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nameInput = e.target.querySelector('[name=name]');
+    if (!nameInput.value.trim()) return;
+    try {
+      await Store.createStatus(projectId, { name: nameInput.value, category: categorySelect.value });
+      nameInput.value = '';
+      await renderStatuses(main, projectId, myRole);
+    } catch (err) { handle(err); }
+  });
+
+  try {
+    const statuses = await Store.listStatuses(projectId);
+    const rows = statuses.map((s, i) => statusRow(s, i, statuses, main, projectId, myRole));
+    list.replaceChildren(...rows);
+    stagger(rows);
+  } catch (err) {
+    list.innerHTML = '';
+    handle(err);
+  }
+}
+
+function statusRow(status, i, all, main, projectId, myRole) {
+  const canManage = Logic.canManageStatuses(myRole);
+  const last = i === all.length - 1;
+  const li = document.createElement('li');
+  li.className = 'order-row';
+  li.innerHTML =
+    (canManage
+      ? `<span class="order-handle">` +
+          `<button class="icon-btn" data-up ${i === 0 ? 'disabled' : ''} aria-label="Move up" type="button">▲</button>` +
+          `<button class="icon-btn" data-down ${last ? 'disabled' : ''} aria-label="Move down" type="button">▼</button>` +
+        `</span>`
+      : '') +
+    `<span class="cat-dot cat-${status.category}"></span>` +
+    `<span class="label" ${canManage ? 'contenteditable="true" data-rename' : ''}>${esc(status.name)}</span>` +
+    (canManage
+      ? `<select data-category>${Logic.CATEGORIES.map(c =>
+          `<option value="${c}" ${c === status.category ? 'selected' : ''}>${Logic.CATEGORY_LABELS[c]}</option>`
+        ).join('')}</select>`
+      : `<span class="hint" style="margin:0">${Logic.CATEGORY_LABELS[status.category]}</span>`) +
+    (canManage ? `<button class="btn btn-danger" data-remove type="button">Delete</button>` : '');
+
+  const run = async (fn) => {
+    try {
+      await fn();
+      await renderStatuses(main, projectId, myRole);
+    } catch (err) { handle(err); }
+  };
+
+  const up = li.querySelector('[data-up]');
+  if (up) up.addEventListener('click', () => run(() => Store.moveStatus(status.id, -1)));
+  const down = li.querySelector('[data-down]');
+  if (down) down.addEventListener('click', () => run(() => Store.moveStatus(status.id, 1)));
+  const remove = li.querySelector('[data-remove]');
+  if (remove) remove.addEventListener('click', () => run(() => Store.deleteStatus(status.id)));
+
+  const categoryEl = li.querySelector('[data-category]');
+  if (categoryEl) {
+    categoryEl.addEventListener('change', () => run(() => Store.updateStatus(status.id, { category: categoryEl.value })));
+  }
+
+  const labelEl = li.querySelector('[data-rename]');
+  if (labelEl) {
+    labelEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); labelEl.blur(); }
+    });
+    labelEl.addEventListener('blur', async () => {
+      const value = labelEl.textContent.trim();
+      if (!value || value === status.name) { labelEl.textContent = status.name; return; }
+      try {
+        await Store.updateStatus(status.id, { name: value });
+        toast('Status renamed');
+      } catch (err) {
+        labelEl.textContent = status.name;
+        handle(err);
+      }
     });
   }
   return li;
@@ -1326,11 +1426,14 @@ function applyCustomFieldErrors(scope, errors) {
 
 /* Board — work items (sub-project 2a) ------------------------------------ */
 
-let boardState = { projectId: null, boardId: null, buckets: null };
+let boardState = { projectId: null, boardId: null, statuses: null, buckets: null };
 
-function groupByStatus(items) {
+// Buckets are keyed by status id (a number) now, not a fixed status string —
+// every column in `boardState.statuses` gets an entry, empty or not, so a
+// freshly-added status with no items yet still renders as a column.
+function groupByStatus(items, statuses) {
   const buckets = {};
-  Logic.STATUSES.forEach(s => { buckets[s] = []; });
+  statuses.forEach(s => { buckets[s.id] = []; });
   items.forEach(item => { (buckets[item.status] || (buckets[item.status] = [])).push(item); });
   return buckets;
 }
@@ -1350,13 +1453,15 @@ async function viewBoard(projectId, boardId) {
   columnsEl.innerHTML = '<p class="loading">Loading board…</p>';
 
   try {
-    const [board, items] = await Promise.all([
+    const [board, items, statuses] = await Promise.all([
       Store.getBoard(boardId),
       Store.listBoardWorkItems(boardId),
+      Store.listStatuses(projectId),
     ]);
     main.querySelector('[data-board-name]').textContent = board.name;
 
-    boardState.buckets = groupByStatus(items);
+    boardState.statuses = statuses;
+    boardState.buckets = groupByStatus(items, statuses);
     paintColumns();
   } catch (err) {
     columnsEl.innerHTML = '';
@@ -1367,27 +1472,29 @@ async function viewBoard(projectId, boardId) {
 
 async function reloadBoard() {
   const items = await Store.listBoardWorkItems(boardState.boardId);
-  boardState.buckets = groupByStatus(items);
+  boardState.buckets = groupByStatus(items, boardState.statuses);
   paintColumns();
 }
 
 function paintColumns() {
   const columnsEl = root.querySelector('[data-columns]');
   if (!columnsEl) return;
-  columnsEl.replaceChildren(...Logic.STATUSES.map(s => columnEl(s, boardState.buckets[s] || [])));
+  columnsEl.replaceChildren(...boardState.statuses.map(s => columnEl(s, boardState.buckets[s.id] || [])));
 }
 
 function columnEl(status, items) {
   const col = document.createElement('section');
   col.className = 'column';
-  if (status === 'in_progress') col.classList.add('column-active');
-  if (status === 'done') col.classList.add('column-done');
+  // Same three visual buckets as before — now keyed by category, since
+  // several statuses can share one (see design/js/logic.js CATEGORIES).
+  if (status.category === 'in_progress') col.classList.add('column-active');
+  if (status.category === 'done') col.classList.add('column-done');
 
   const head = document.createElement('div');
   head.className = 'column-head';
   head.innerHTML =
     `<span class="dot"></span>` +
-    `<span class="label">${Logic.STATUS_LABELS[status]}</span>` +
+    `<span class="label">${esc(status.name)}</span>` +
     `<span class="count">${items.length}</span>`;
   col.appendChild(head);
 
@@ -1396,7 +1503,7 @@ function columnEl(status, items) {
   items.forEach(item => stack.appendChild(workItemCard(item)));
   col.appendChild(stack);
 
-  col.appendChild(addWorkItemControl(status));
+  col.appendChild(addWorkItemControl(status.id));
   return col;
 }
 
@@ -1566,7 +1673,7 @@ async function openWorkItemModal(itemId) {
   const childrenHtml = item.children.length
     ? `<ul class="children-list">${item.children.map(c =>
         `<li><a href="#" data-open-item="${c.id}"><span class="key-pill">${esc(c.key)}</span> ${esc(c.title)}</a>` +
-        `<span class="status-tag">${Logic.STATUS_LABELS[c.status]}</span></li>`
+        `<span class="status-tag">${c.status_detail ? esc(c.status_detail.name) : ''}</span></li>`
       ).join('')}</ul>`
     : `<p class="empty-inline">No children yet.</p>`;
 
@@ -1591,8 +1698,8 @@ async function openWorkItemModal(itemId) {
     <div class="grid-3">
       <label class="field">
         <span>Status</span>
-        <select name="status">${Logic.STATUSES.map(s =>
-          `<option value="${s}" ${item.status === s ? 'selected' : ''}>${Logic.STATUS_LABELS[s]}</option>`).join('')}</select>
+        <select name="status">${(boardState.statuses || []).map(s =>
+          `<option value="${s.id}" ${item.status === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
       </label>
       <label class="field">
         <span>Priority</span>
